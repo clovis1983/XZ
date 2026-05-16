@@ -1,0 +1,5 @@
+build/
+tb/*.vvp
+tb/out_*.xz
+tb/out_*.bin
+tb/model.xz

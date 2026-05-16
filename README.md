@@ -1,0 +1,97 @@
+# XZ/LZMA2 RTL Codec IP
+
+ASIC-oriented XZ/LZMA2 codec IP scaffold with AXI-Stream data ports and an
+AXI-Lite control/status plane.
+
+## Current v0.1 Scope
+
+Implemented now:
+
+- Standard `.xz` container encoder for a single Stream and one LZMA2 Block.
+- LZMA2 uncompressed-chunk encoder path (`0x01/0x02` chunks plus `0x00` EOS).
+- Decoder for the same LZMA2 uncompressed subset, with explicit errors for
+  compressed LZMA2 chunks and unsupported filters.
+- Check support for None, CRC32, and CRC64.
+- AXI-Lite register shell and half-duplex top-level mux.
+- Smoke test proving RTL encoder output round-trips through Python `lzma`.
+
+Not implemented yet:
+
+- HC4 match finder.
+- FAST/greedy parser.
+- LZMA range encoder/decoder and probability RAM.
+- Real compression ratio characterization.
+- Full common `.xz` decode coverage for compressed LZMA2 streams.
+
+The v0.1 path is intentionally useful: it creates valid `.xz` files and fixes
+the integration contract before the compression engine is inserted.
+
+## Layout
+
+- `rtl/xz_codec_top.sv`: top-level IP wrapper.
+- `rtl/xz_axi_lite_regs.sv`: control/status registers.
+- `rtl/xz_lzma2_uncompressed_encoder.sv`: `.xz` + LZMA2 uncompressed encoder.
+- `rtl/xz_lzma2_uncompressed_decoder.sv`: matching decoder subset.
+- `rtl/xz_codec_pkg.sv`: constants, CRC helpers, VLI helpers.
+- `tb/tb_xz_encoder.sv`: encoder smoke testbench.
+- `scripts/run_smoke.py`: compile/simulate/round-trip check.
+- `scripts/xz_uncompressed_model.py`: Python golden model for this subset.
+- `docs/REGISTER_MAP.md`: AXI-Lite map.
+- `docs/MICROARCHITECTURE.md`: implementation notes and next steps.
+
+## Quick Start
+
+```sh
+python3 scripts/run_smoke.py
+```
+
+Expected final line:
+
+```text
+smoke ok: encoded=<n> decoded=<n>
+```
+
+You can also generate a model `.xz` stream:
+
+```sh
+python3 scripts/xz_uncompressed_model.py input.bin output.xz --verify
+```
+
+## VCS and DC
+
+Commercial-tool targets are included for validation on another machine:
+
+```sh
+make vcs
+make vcs-run
+```
+
+`make vcs` compiles the encoder TB, decoder TB, and top-level syntax target.
+`make vcs-run` runs the encoder first so `tb/out_hw.xz` exists, then runs the
+decoder.
+
+For Design Compiler:
+
+```sh
+make dc \
+  DC_TARGET_LIBRARY=/path/to/typical.db \
+  DC_LINK_LIBRARY="/path/to/typical.db" \
+  DC_CLOCK_PERIOD_NS=2.0 \
+  DC_CHUNK_MAX_BYTES=64
+```
+
+Reports and mapped outputs are written under `build/dc/`. Keep
+`DC_CHUNK_MAX_BYTES` small for first generic synthesis because v0.1 still models
+the chunk buffer as RTL storage; replace it with an SRAM macro before full-size
+`65536` synthesis.
+
+## Integration Notes
+
+- Data width is 8-bit AXI-Stream in v0.1. The internal container/range-coder
+  boundary is byte-oriented, so widening should be added with ingress/egress
+  packers rather than touching codec state machines.
+- `CHUNK_MAX_BYTES` defaults to 65536, matching the LZMA2 uncompressed chunk
+  maximum. For simulation, override it to a smaller value.
+- The encoder chunk buffer is modeled as a register array. ASIC integration
+  should map this storage to a synchronous SRAM macro or replace it with a
+  two-pass/chunk-size prefetch path.
