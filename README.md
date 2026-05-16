@@ -166,6 +166,13 @@ baseline:
 make cmodel-gate CMODEL_MODE=compressed
 ```
 
+The same Python `lzma` compressed reference path is also available through an
+explicit target:
+
+```sh
+make cmodel-gate-python
+```
+
 To force the compressed side to use the liblzma-backed C binary instead of the
 Python reference:
 

@@ -50,7 +50,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-liblzma cmodel-gate-rtl param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -87,6 +87,9 @@ cmodel-bench: cmodel-func bench-corpus
 	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --rtl-cmodel $(CMODEL_RTL) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
 
 cmodel-gate: cmodel-bench
+
+cmodel-gate-python:
+	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=python
 
 cmodel-gate-liblzma: cmodel-liblzma
 	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=liblzma

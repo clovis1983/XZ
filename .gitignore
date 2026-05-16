@@ -1,5 +1,8 @@
 build/
 ref_code/
+.DS_Store
+__pycache__/
+*.pyc
 tb/*.vvp
 tb/out_*.xz
 tb/out_*.bin
