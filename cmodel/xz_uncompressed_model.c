@@ -11,6 +11,18 @@ enum {
     XZ_CHECK_CRC64 = 4,
 };
 
+typedef struct {
+    uint32_t dict_kib;
+    uint8_t dict_prop;
+    uint32_t lc;
+    uint32_t lp;
+    uint32_t pb;
+    uint32_t nice_len;
+    uint32_t depth;
+    uint32_t chunk_size;
+    int check_type;
+} xz_lzma2_cfg_t;
+
 static uint32_t crc32_update(uint32_t crc, uint8_t data)
 {
     crc ^= data;
@@ -120,6 +132,55 @@ static int check_size(int check_type)
     default:
         return -1;
     }
+}
+
+static uint8_t dict_prop_from_kib(uint32_t dict_kib)
+{
+    switch (dict_kib) {
+    case 64:
+        return 8;
+    case 256:
+        return 12;
+    case 1024:
+        return 16;
+    default:
+        return 0xFF;
+    }
+}
+
+static uint32_t dict_kib_from_prop(uint8_t dict_prop)
+{
+    switch (dict_prop) {
+    case 8:
+        return 64;
+    case 12:
+        return 256;
+    case 16:
+        return 1024;
+    default:
+        return 0;
+    }
+}
+
+static int validate_cfg(const xz_lzma2_cfg_t *cfg)
+{
+    if (check_size(cfg->check_type) < 0)
+        return -1;
+    if (cfg->dict_prop > 40)
+        return -1;
+    if (cfg->dict_kib == 0)
+        return -1;
+    if (cfg->lc > 4 || cfg->lp > 4 || cfg->lc + cfg->lp > 4)
+        return -1;
+    if (cfg->pb > 4)
+        return -1;
+    if (cfg->nice_len == 0 || cfg->nice_len > 273)
+        return -1;
+    if (cfg->depth == 0)
+        return -1;
+    if (cfg->chunk_size == 0 || cfg->chunk_size > 65536)
+        return -1;
+    return 0;
 }
 
 static int write_stream_header(FILE *out, int check_type)
@@ -284,7 +345,17 @@ static int parse_u32(const char *text, uint32_t *value)
 static void usage(const char *argv0)
 {
     fprintf(stderr,
-            "usage: %s [--check 0|1|4] [--dict-prop N] [--chunk-size N] <input> <output.xz>\n",
+            "usage: %s [options] <input> <output.xz>\n"
+            "options:\n"
+            "  --check 0|1|4       XZ check type: none/crc32/crc64 (default 1)\n"
+            "  --dict-kib N        Dictionary size in KiB: 64, 256, or 1024 (default 256)\n"
+            "  --dict-prop N       Raw LZMA2 dict property, kept for RTL compatibility\n"
+            "  --lc N              Literal context bits, lc+lp<=4 (default 4)\n"
+            "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"
+            "  --pb N              Position bits, <=4 (default 0)\n"
+            "  --nice-len N        Match nice length for future HC4 parser (default 64)\n"
+            "  --depth N           Match search depth for future HC4 parser (default 16)\n"
+            "  --chunk-size N      LZMA2 chunk size, <=65536 (default 65536)\n",
             argv0);
 }
 
@@ -299,9 +370,17 @@ int main(int argc, char **argv)
     uint64_t total_out = 0;
     unsigned index_size = 0;
     uint32_t tmp = 0;
-    int check_type = XZ_CHECK_CRC32;
-    uint8_t dict_prop = 12;
-    uint32_t chunk_size = 65536;
+    xz_lzma2_cfg_t cfg = {
+        .dict_kib = 256,
+        .dict_prop = 12,
+        .lc = 4,
+        .lp = 0,
+        .pb = 0,
+        .nice_len = 64,
+        .depth = 16,
+        .chunk_size = 65536,
+        .check_type = XZ_CHECK_CRC32,
+    };
     int csize = 0;
     FILE *out = NULL;
     int rc = 1;
@@ -312,19 +391,58 @@ int main(int argc, char **argv)
                 usage(argv[0]);
                 return 1;
             }
-            check_type = (int)tmp;
+            cfg.check_type = (int)tmp;
+        } else if (strcmp(argv[i], "--dict-kib") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &tmp) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
+            cfg.dict_kib = tmp;
+            cfg.dict_prop = dict_prop_from_kib(tmp);
+            if (cfg.dict_prop == 0xFF) {
+                usage(argv[0]);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--dict-prop") == 0 && i + 1 < argc) {
             if (parse_u32(argv[++i], &tmp) != 0 || tmp > 40) {
                 usage(argv[0]);
                 return 1;
             }
-            dict_prop = (uint8_t)tmp;
+            cfg.dict_prop = (uint8_t)tmp;
+            cfg.dict_kib = dict_kib_from_prop(cfg.dict_prop);
+            if (cfg.dict_kib == 0)
+                cfg.dict_kib = (uint32_t)(2U | (tmp & 1U)) << ((tmp / 2U) + 1U);
+        } else if (strcmp(argv[i], "--lc") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &cfg.lc) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--lp") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &cfg.lp) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--pb") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &cfg.pb) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--nice-len") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &cfg.nice_len) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--depth") == 0 && i + 1 < argc) {
+            if (parse_u32(argv[++i], &cfg.depth) != 0) {
+                usage(argv[0]);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--chunk-size") == 0 && i + 1 < argc) {
             if (parse_u32(argv[++i], &tmp) != 0 || tmp == 0 || tmp > 65536) {
                 usage(argv[0]);
                 return 1;
             }
-            chunk_size = tmp;
+            cfg.chunk_size = tmp;
         } else if (input_path == NULL) {
             input_path = argv[i];
         } else if (output_path == NULL) {
@@ -335,8 +453,8 @@ int main(int argc, char **argv)
         }
     }
 
-    csize = check_size(check_type);
-    if (input_path == NULL || output_path == NULL || csize < 0) {
+    csize = check_size(cfg.check_type);
+    if (input_path == NULL || output_path == NULL || validate_cfg(&cfg) != 0) {
         usage(argv[0]);
         return 1;
     }
@@ -353,9 +471,9 @@ int main(int argc, char **argv)
         goto out;
     }
 
-    if (write_stream_header(out, check_type) ||
-        write_block_header(out, dict_prop) ||
-        write_lzma2_uncompressed(out, input, input_len, chunk_size, &compressed_size))
+    if (write_stream_header(out, cfg.check_type) ||
+        write_block_header(out, cfg.dict_prop) ||
+        write_lzma2_uncompressed(out, input, input_len, cfg.chunk_size, &compressed_size))
         goto out;
 
     for (unsigned i = 0; i < ((4U - ((12U + compressed_size) & 3U)) & 3U); ++i) {
@@ -363,12 +481,12 @@ int main(int argc, char **argv)
             goto out;
     }
 
-    if (write_check(out, input, input_len, check_type))
+    if (write_check(out, input, input_len, cfg.check_type))
         goto out;
 
     unpadded_size = 12U + compressed_size + (uint64_t)csize;
     if (write_index(out, unpadded_size, input_len, &index_size) ||
-        write_footer(out, index_size, check_type))
+        write_footer(out, index_size, cfg.check_type))
         goto out;
 
     if (fclose(out) != 0) {
@@ -379,9 +497,12 @@ int main(int argc, char **argv)
 
     total_out = 12U + unpadded_size + ((4U - ((12U + compressed_size) & 3U)) & 3U) +
                 index_size + 12U;
-    printf("input_bytes=%" PRIu64 " output_bytes=%" PRIu64 " ratio=%.6f overhead_bytes=%" PRIu64 "\n",
+    printf("input_bytes=%" PRIu64 " output_bytes=%" PRIu64 " ratio=%.6f overhead_bytes=%" PRIu64
+           " dict_kib=%u dict_prop=%u lc=%u lp=%u pb=%u nice_len=%u depth=%u chunk_size=%u check=%d\n",
            input_len, total_out, input_len == 0 ? 0.0 : (double)total_out / (double)input_len,
-           total_out >= input_len ? total_out - input_len : 0);
+           total_out >= input_len ? total_out - input_len : 0,
+           cfg.dict_kib, cfg.dict_prop, cfg.lc, cfg.lp, cfg.pb, cfg.nice_len, cfg.depth,
+           cfg.chunk_size, cfg.check_type);
     rc = 0;
 
 out:

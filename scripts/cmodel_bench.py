@@ -51,28 +51,56 @@ def baseline_encode(input_path: Path, output_path: Path) -> tuple[str, float]:
     return tool, elapsed
 
 
-def cmodel_encode_uncompressed(cmodel: Path, input_path: Path, output_path: Path, chunk_size: int) -> float:
+def cmodel_encode_uncompressed(
+    cmodel: Path,
+    input_path: Path,
+    output_path: Path,
+    chunk_size: int,
+    args: argparse.Namespace,
+) -> float:
     start = time.perf_counter()
-    run([str(cmodel), "--check", "1", "--chunk-size", str(chunk_size), str(input_path), str(output_path)])
+    run(
+        [
+            str(cmodel),
+            "--check",
+            "1",
+            "--dict-kib",
+            str(args.dict_kib),
+            "--lc",
+            str(args.lc),
+            "--lp",
+            str(args.lp),
+            "--pb",
+            str(args.pb),
+            "--nice-len",
+            str(args.nice_len),
+            "--depth",
+            str(args.depth),
+            "--chunk-size",
+            str(chunk_size),
+            str(input_path),
+            str(output_path),
+        ]
+    )
     elapsed = time.perf_counter() - start
     if lzma.decompress(output_path.read_bytes()) != input_path.read_bytes():
         raise SystemExit(f"cmodel decode mismatch: {input_path}")
     return elapsed
 
 
-def cmodel_encode_compressed(input_path: Path, output_path: Path) -> tuple[str, float]:
+def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, float]:
     data = input_path.read_bytes()
     filters = [
         {
             "id": lzma.FILTER_LZMA2,
-            "dict_size": 256 * 1024,
-            "lc": 3,
-            "lp": 0,
-            "pb": 2,
+            "dict_size": args.dict_kib * 1024,
+            "lc": args.lc,
+            "lp": args.lp,
+            "pb": args.pb,
             "mode": lzma.MODE_FAST,
-            "nice_len": 32,
+            "nice_len": args.nice_len,
             "mf": lzma.MF_HC4,
-            "depth": 16,
+            "depth": args.depth,
         }
     ]
     start = time.perf_counter()
@@ -81,7 +109,11 @@ def cmodel_encode_compressed(input_path: Path, output_path: Path) -> tuple[str, 
     elapsed = time.perf_counter() - start
     if lzma.decompress(encoded) != data:
         raise SystemExit(f"compressed cmodel proxy decode mismatch: {input_path}")
-    desc = "python-lzma LZMA2 HC4 fast dict=256KiB lc=3 lp=0 pb=2 nice=32 depth=16"
+    desc = (
+        "python-lzma LZMA2 HC4 fast "
+        f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
+        f"nice={args.nice_len} depth={args.depth}"
+    )
     return desc, elapsed
 
 
@@ -98,7 +130,7 @@ def mbps(byte_count: int, seconds: float) -> float:
     return byte_count / seconds / (1024 * 1024)
 
 
-def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: bool) -> None:
+def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: bool, args: argparse.Namespace) -> None:
     headers = [
         "name",
         "category",
@@ -119,7 +151,9 @@ def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: 
         f"- baseline_version: `{xz_ver}`",
         f"- baseline_is_xz_5_8_3: `{is_583}`",
         "- compressed_mode_note: `python-lzma custom LZMA2 is used as the compressed reference until the standalone C range-coder/HC4 model lands`",
-        "- compressed_reference_params: `LZMA2 HC4 fast dict=256KiB lc=3 lp=0 pb=2 nice=32 depth=16 check=CRC32`",
+        "- compressed_reference_params: "
+        f"`LZMA2 HC4 fast dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} "
+        f"pb={args.pb} nice={args.nice_len} depth={args.depth} check=CRC32`",
         "",
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
@@ -136,6 +170,12 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/reports"))
     parser.add_argument("--chunk-size", type=int, default=65536)
     parser.add_argument("--mode", choices=["uncompressed", "compressed"], default="uncompressed")
+    parser.add_argument("--dict-kib", type=int, default=256)
+    parser.add_argument("--lc", type=int, default=4)
+    parser.add_argument("--lp", type=int, default=0)
+    parser.add_argument("--pb", type=int, default=0)
+    parser.add_argument("--nice-len", type=int, default=64)
+    parser.add_argument("--depth", type=int, default=16)
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -154,9 +194,9 @@ def main() -> None:
         uncompressed_xz = encoded_dir / f"{name}.uncompressed.xz"
         baseline_xz = encoded_dir / f"{name}.bestxz.xz"
 
-        unc_enc = cmodel_encode_uncompressed(args.cmodel, input_path, uncompressed_xz, args.chunk_size)
+        unc_enc = cmodel_encode_uncompressed(args.cmodel, input_path, uncompressed_xz, args.chunk_size, args)
         if args.mode == "compressed":
-            cmodel_tool, c_enc = cmodel_encode_compressed(input_path, cmodel_xz)
+            cmodel_tool, c_enc = cmodel_encode_compressed(input_path, cmodel_xz, args)
         else:
             cmodel_tool = "standalone C model LZMA2 uncompressed chunks"
             cmodel_xz.write_bytes(uncompressed_xz.read_bytes())
@@ -199,7 +239,7 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-    write_markdown(rows, md_path, version, is_583)
+    write_markdown(rows, md_path, version, is_583, args)
 
     print(f"csv: {csv_path}")
     print(f"markdown: {md_path}")

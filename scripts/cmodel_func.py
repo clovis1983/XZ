@@ -34,18 +34,18 @@ def make_cases(out_dir: Path) -> list[tuple[str, bytes, int]]:
     ]
 
 
-def compressed_reference(data: bytes) -> bytes:
+def compressed_reference(data: bytes, args: argparse.Namespace) -> bytes:
     filters = [
         {
             "id": lzma.FILTER_LZMA2,
-            "dict_size": 256 * 1024,
-            "lc": 3,
-            "lp": 0,
-            "pb": 2,
+            "dict_size": args.dict_kib * 1024,
+            "lc": args.lc,
+            "lp": args.lp,
+            "pb": args.pb,
             "mode": lzma.MODE_FAST,
-            "nice_len": 32,
+            "nice_len": args.nice_len,
             "mf": lzma.MF_HC4,
-            "depth": 16,
+            "depth": args.depth,
         }
     ]
     return lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
@@ -55,6 +55,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/func"))
+    parser.add_argument("--dict-kib", type=int, default=256)
+    parser.add_argument("--lc", type=int, default=4)
+    parser.add_argument("--lp", type=int, default=0)
+    parser.add_argument("--pb", type=int, default=0)
+    parser.add_argument("--nice-len", type=int, default=64)
+    parser.add_argument("--depth", type=int, default=16)
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -72,6 +78,18 @@ def main() -> None:
                 str(args.cmodel),
                 "--check",
                 check,
+                "--dict-kib",
+                str(args.dict_kib),
+                "--lc",
+                str(args.lc),
+                "--lp",
+                str(args.lp),
+                "--pb",
+                str(args.pb),
+                "--nice-len",
+                str(args.nice_len),
+                "--depth",
+                str(args.depth),
                 "--chunk-size",
                 str(chunk_size),
                 str(input_path),
@@ -88,7 +106,7 @@ def main() -> None:
     compressed_passed = 0
     for name, data, _chunk_size in cases:
         start = time.perf_counter()
-        encoded = compressed_reference(data)
+        encoded = compressed_reference(data, args)
         elapsed = time.perf_counter() - start
         if lzma.decompress(encoded) != data:
             raise SystemExit(f"compressed reference mismatch: {name}")

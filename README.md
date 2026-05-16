@@ -66,6 +66,23 @@ make cmodel
 build/cmodel/xz_uncompressed_model input.bin output.xz
 ```
 
+The standalone C model CLI accepts the same knobs intended for the compressed
+core:
+
+```sh
+build/cmodel/xz_uncompressed_model \
+  --dict-kib 256 \
+  --lc 4 --lp 0 --pb 0 \
+  --nice-len 64 \
+  --depth 16 \
+  --check 1 \
+  input.bin output.xz
+```
+
+In the current standalone C model these knobs are validated, reported, and used
+for LZMA2 dictionary-property emission; `nice_len` and `depth` are wired into the
+configuration interface for the upcoming HC4/range-coder implementation.
+
 It prints:
 
 ```text
@@ -113,8 +130,8 @@ make cmodel-gate CMODEL_MODE=compressed
 ```
 
 Compressed mode currently uses Python `lzma` with an explicit LZMA2 filter that
-matches the intended hardware subset: HC4, fast mode, 256 KiB dictionary,
-`lc/lp/pb=3/0/2`, `nice_len=32`, and `depth=16`. The standalone C range-coder
+matches the intended hardware subset: HC4, fast mode, configurable dictionary,
+`lc/lp/pb`, `nice_len`, and `depth`. The standalone C range-coder
 and HC4 implementation is still the next coding step, but this mode gives an
 immediate apples-to-apples `.xz` comparison against `xz -9e`.
 `make cmodel-func` also validates this compressed reference on the functional

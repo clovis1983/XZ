@@ -14,7 +14,12 @@ CFLAGS ?= -O2 -Wall -Wextra -std=c11
 CMODEL_BUILD_DIR ?= build/cmodel
 CMODEL ?= $(CMODEL_BUILD_DIR)/xz_uncompressed_model
 CMODEL_CHECK ?= 1
-CMODEL_DICT_PROP ?= 12
+CMODEL_DICT_KIB ?= 256
+CMODEL_LC ?= 4
+CMODEL_LP ?= 0
+CMODEL_PB ?= 0
+CMODEL_NICE_LEN ?= 64
+CMODEL_DEPTH ?= 16
 CMODEL_CHUNK_SIZE ?= 65536
 CMODEL_MODE ?= uncompressed
 BENCH_CORPUS_DIR ?= build/bench_corpus
@@ -52,17 +57,17 @@ $(CMODEL): cmodel/xz_uncompressed_model.c
 	$(CC) $(CFLAGS) -o $@ $<
 
 cmodel-test: cmodel
-	$(CMODEL) --check $(CMODEL_CHECK) --dict-prop $(CMODEL_DICT_PROP) --chunk-size 16 tb/out_input.bin $(CMODEL_BUILD_DIR)/model.xz
+	$(CMODEL) --check $(CMODEL_CHECK) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH) --chunk-size 16 tb/out_input.bin $(CMODEL_BUILD_DIR)/model.xz
 	python3 -c 'import lzma, pathlib; assert lzma.decompress(pathlib.Path("$(CMODEL_BUILD_DIR)/model.xz").read_bytes()) == pathlib.Path("tb/out_input.bin").read_bytes(); print("cmodel round-trip ok")'
 
 cmodel-func: cmodel
-	python3 scripts/cmodel_func.py --cmodel $(CMODEL)
+	python3 scripts/cmodel_func.py --cmodel $(CMODEL) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
 
 bench-corpus:
 	python3 scripts/gen_bench_corpus.py --out-dir $(BENCH_CORPUS_DIR)
 
 cmodel-bench: cmodel-func bench-corpus
-	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE)
+	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
 
 cmodel-gate: cmodel-bench
 
@@ -74,7 +79,7 @@ param-sweep-upper: bench-corpus
 
 ratio: cmodel
 	test -n "$(INPUT)" || (echo "usage: make ratio INPUT=/path/to/file [CMODEL_CHECK=1] [CMODEL_CHUNK_SIZE=65536]" && false)
-	$(CMODEL) --check $(CMODEL_CHECK) --dict-prop $(CMODEL_DICT_PROP) --chunk-size $(CMODEL_CHUNK_SIZE) "$(INPUT)" $(CMODEL_BUILD_DIR)/ratio_out.xz
+	$(CMODEL) --check $(CMODEL_CHECK) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH) --chunk-size $(CMODEL_CHUNK_SIZE) "$(INPUT)" $(CMODEL_BUILD_DIR)/ratio_out.xz
 
 vcs: vcs-encoder vcs-decoder vcs-top
 
