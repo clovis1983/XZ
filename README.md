@@ -57,6 +57,38 @@ You can also generate a model `.xz` stream:
 python3 scripts/xz_uncompressed_model.py input.bin output.xz --verify
 ```
 
+## C Model and Compression Ratio
+
+The RTL-equivalent C model is:
+
+```sh
+make cmodel
+build/cmodel/xz_uncompressed_model input.bin output.xz
+```
+
+It prints:
+
+```text
+input_bytes=<n> output_bytes=<n> ratio=<output/input> overhead_bytes=<n>
+```
+
+For a quick round-trip check against Python `lzma`:
+
+```sh
+make smoke
+make cmodel-test
+```
+
+To measure the v0.1 RTL-equivalent ratio on your own file:
+
+```sh
+make ratio INPUT=/path/to/sample.bin
+```
+
+Important: v0.1 uses LZMA2 uncompressed chunks, so ratio is expected to be
+larger than 1.0 except for unusual corner cases. This measures container/chunk
+overhead and model/RTL alignment, not real HC4/range-coder compression.
+
 ## VCS and DC
 
 Commercial-tool targets are included for validation on another machine:
