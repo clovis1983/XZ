@@ -16,6 +16,7 @@ LZMA_LIBS ?= -llzma
 CMODEL_BUILD_DIR ?= build/cmodel
 CMODEL ?= $(CMODEL_BUILD_DIR)/xz_uncompressed_model
 CMODEL_LZMA ?= $(CMODEL_BUILD_DIR)/xz_liblzma_model
+CMODEL_RTL ?= $(CMODEL_BUILD_DIR)/xz_rtl_model
 CMODEL_COMPRESSED_BACKEND ?= python
 CMODEL_CHECK ?= 1
 CMODEL_DICT_KIB ?= 256
@@ -49,7 +50,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke cmodel cmodel-liblzma cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-liblzma param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-liblzma cmodel-gate-rtl param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -66,23 +67,32 @@ $(CMODEL_LZMA): cmodel/xz_liblzma_model.c
 	mkdir -p $(CMODEL_BUILD_DIR)
 	$(CC) $(CFLAGS) $(LZMA_CFLAGS) -o $@ $< $(LZMA_LIBS)
 
+cmodel-rtl: $(CMODEL_RTL)
+
+$(CMODEL_RTL): cmodel/xz_rtl_model.c
+	mkdir -p $(CMODEL_BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $<
+
 cmodel-test: cmodel
 	$(CMODEL) --check $(CMODEL_CHECK) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH) --chunk-size 16 tb/out_input.bin $(CMODEL_BUILD_DIR)/model.xz
 	python3 -c 'import lzma, pathlib; assert lzma.decompress(pathlib.Path("$(CMODEL_BUILD_DIR)/model.xz").read_bytes()) == pathlib.Path("tb/out_input.bin").read_bytes(); print("cmodel round-trip ok")'
 
 cmodel-func: cmodel
-	python3 scripts/cmodel_func.py --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
+	python3 scripts/cmodel_func.py --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --rtl-cmodel $(CMODEL_RTL) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
 
 bench-corpus:
 	python3 scripts/gen_bench_corpus.py --out-dir $(BENCH_CORPUS_DIR)
 
 cmodel-bench: cmodel-func bench-corpus
-	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
+	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --rtl-cmodel $(CMODEL_RTL) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
 
 cmodel-gate: cmodel-bench
 
 cmodel-gate-liblzma: cmodel-liblzma
 	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=liblzma
+
+cmodel-gate-rtl: cmodel-rtl
+	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=rtl
 
 param-sweep: bench-corpus
 	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP)

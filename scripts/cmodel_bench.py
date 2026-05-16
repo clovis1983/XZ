@@ -89,9 +89,10 @@ def cmodel_encode_uncompressed(
 
 
 def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, float]:
-    if args.compressed_backend == "liblzma":
+    if args.compressed_backend in ("liblzma", "rtl"):
+        exe = args.compressed_cmodel if args.compressed_backend == "liblzma" else args.rtl_cmodel
         cmd = [
-            str(args.compressed_cmodel),
+            str(exe),
             "--check",
             "1",
             "--dict-kib",
@@ -113,12 +114,19 @@ def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse
         run(cmd)
         elapsed = time.perf_counter() - start
         if lzma.decompress(output_path.read_bytes()) != input_path.read_bytes():
-            raise SystemExit(f"liblzma cmodel decode mismatch: {input_path}")
-        desc = (
-            "standalone C liblzma LZMA2 HC4 range "
-            f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
-            f"nice={args.nice_len} depth={args.depth}"
-        )
+            raise SystemExit(f"{args.compressed_backend} cmodel decode mismatch: {input_path}")
+        if args.compressed_backend == "liblzma":
+            desc = (
+                "standalone C liblzma LZMA2 HC4 range "
+                f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
+                f"nice={args.nice_len} depth={args.depth}"
+            )
+        else:
+            desc = (
+                "standalone RTL-friendly C LZMA2 HC4 greedy range "
+                f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
+                f"nice={args.nice_len} depth={args.depth}"
+            )
         return desc, elapsed
 
     data = input_path.read_bytes()
@@ -182,7 +190,7 @@ def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: 
         "",
         f"- baseline_version: `{xz_ver}`",
         f"- baseline_is_xz_5_8_3: `{is_583}`",
-        "- compressed_mode_note: `python-lzma custom LZMA2 is used as the compressed reference until the standalone C range-coder/HC4 model lands`",
+        "- compressed_mode_note: `backend may be python reference, liblzma reference, or standalone RTL-friendly C model`",
         f"- compressed_backend: `{args.compressed_backend}`",
         "- compressed_reference_params: "
         f"`LZMA2 HC4 fast dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} "
@@ -201,7 +209,8 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, default=Path("build/bench_corpus/manifest.json"))
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
     parser.add_argument("--compressed-cmodel", type=Path, default=Path("build/cmodel/xz_liblzma_model"))
-    parser.add_argument("--compressed-backend", choices=["python", "liblzma"], default="python")
+    parser.add_argument("--rtl-cmodel", type=Path, default=Path("build/cmodel/xz_rtl_model"))
+    parser.add_argument("--compressed-backend", choices=["python", "liblzma", "rtl"], default="python")
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/reports"))
     parser.add_argument("--chunk-size", type=int, default=65536)
     parser.add_argument("--mode", choices=["uncompressed", "compressed"], default="uncompressed")

@@ -60,8 +60,9 @@ def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namesp
         output_path.write_bytes(encoded)
         return "PYTHON_LZMA_REFERENCE", encoded, elapsed
 
+    exe = args.compressed_cmodel if args.compressed_backend == "liblzma" else args.rtl_cmodel
     cmd = [
-        str(args.compressed_cmodel),
+        str(exe),
         "--check",
         "1",
         "--dict-kib",
@@ -82,14 +83,17 @@ def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namesp
     start = time.perf_counter()
     run(cmd)
     elapsed = time.perf_counter() - start
-    return "STANDALONE_C_LIBLZMA_HC4_RANGE", output_path.read_bytes(), elapsed
+    if args.compressed_backend == "liblzma":
+        return "STANDALONE_C_LIBLZMA_HC4_RANGE", output_path.read_bytes(), elapsed
+    return "STANDALONE_C_RTL_FRIENDLY_HC4_RANGE", output_path.read_bytes(), elapsed
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
     parser.add_argument("--compressed-cmodel", type=Path, default=Path("build/cmodel/xz_liblzma_model"))
-    parser.add_argument("--compressed-backend", choices=["python", "liblzma"], default="python")
+    parser.add_argument("--rtl-cmodel", type=Path, default=Path("build/cmodel/xz_rtl_model"))
+    parser.add_argument("--compressed-backend", choices=["python", "liblzma", "rtl"], default="python")
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/func"))
     parser.add_argument("--dict-kib", type=int, default=256)
     parser.add_argument("--lc", type=int, default=4)

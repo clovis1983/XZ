@@ -55,6 +55,28 @@ Required RTL blocks:
 - Bit-serial range encoder/decoder, one probability decision per cycle.
 - Probability RAM initialized from `lc/lp/pb` and state reset events.
 
+## RTL-Friendly C Model Baseline
+
+`cmodel/xz_rtl_model.c` is the current software shape for the compressed RTL
+core. It is self-contained and does not call liblzma. The model emits standard
+`.xz` streams using:
+
+- local LZMA probability arrays for `is_match`, `is_rep`, literal coders,
+  length coders, distance slots, special distances, and alignment bits;
+- a bit-serial range encoder with explicit normalize, bit, direct-bit,
+  bittree, reverse-bittree, and flush operations;
+- an HC4-style hash-chain match finder with runtime `dict_kib`,
+  `nice_len`, and `depth` bounds;
+- a greedy parser that emits literals or normal matches;
+- LZMA2 compressed chunk headers with property reset, plus uncompressed
+  fallback when a chunk is incompressible;
+- the same XZ Stream/Header/Block/Index/Footer and CRC32/CRC64 code path used
+  by the uncompressed C model.
+
+The first RTL coding target should map this model block-for-block. Rep-match
+coding and optimum parsing remain deliberate compression-ratio improvements
+after this baseline is stable.
+
 ## Characterization Defaults
 
 Use these initial sweep points:

@@ -101,6 +101,25 @@ the same local C model configuration interface. By default it includes headers
 from `ref_code/xz/src/liblzma/api` and links with `-llzma`; override
 `LZMA_CFLAGS` and `LZMA_LIBS` if you build liblzma from `ref_code`.
 
+The standalone RTL-friendly compressed C model is:
+
+```sh
+make cmodel-rtl
+build/cmodel/xz_rtl_model \
+  --dict-kib 256 \
+  --lc 4 --lp 0 --pb 0 \
+  --nice-len 64 \
+  --depth 16 \
+  input.bin output.xz
+```
+
+This model doesn't link against liblzma. It contains a local probability RAM,
+bit-serial range encoder, literal path, normal-match path, HC4-style hash-chain
+match finder, greedy parser, LZMA2 chunk packetizer, incompressible fallback,
+and `.xz` container/check generation. It intentionally omits rep-match and
+optimum parsing for now, so it is the first RTL mapping baseline rather than a
+compression-ratio upper bound.
+
 It prints:
 
 ```text
@@ -154,11 +173,18 @@ Python reference:
 make cmodel-gate-liblzma
 ```
 
+To run the standalone RTL-friendly C model gate:
+
+```sh
+make cmodel-gate-rtl
+```
+
 Compressed mode defaults to Python `lzma` with an explicit LZMA2 filter that
 matches the intended hardware subset: HC4, fast mode, configurable dictionary,
 `lc/lp/pb`, `nice_len`, and `depth`. `make cmodel-gate-liblzma` switches that
 path to the standalone C binary backed by liblzma, so the functional cases and
 five-file benchmark both exercise a C executable using real HC4/range coding.
+`make cmodel-gate-rtl` instead uses the self-contained RTL-friendly encoder.
 
 Parameter sweeps can be run on the same five-file corpus:
 
