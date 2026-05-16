@@ -51,18 +51,8 @@ def compressed_reference(data: bytes, args: argparse.Namespace) -> bytes:
     return lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
 
 
-def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, bytes, float]:
-    if args.compressed_backend == "python":
-        data = input_path.read_bytes()
-        start = time.perf_counter()
-        encoded = compressed_reference(data, args)
-        elapsed = time.perf_counter() - start
-        output_path.write_bytes(encoded)
-        return "PYTHON_LZMA_REFERENCE", encoded, elapsed
-
-    exe = args.compressed_cmodel if args.compressed_backend == "liblzma" else args.rtl_cmodel
-    cmd = [
-        str(exe),
+def common_cmodel_args(args: argparse.Namespace) -> list[str]:
+    return [
         "--check",
         "1",
         "--dict-kib",
@@ -77,9 +67,23 @@ def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namesp
         str(args.nice_len),
         "--depth",
         str(args.depth),
-        str(input_path),
-        str(output_path),
     ]
+
+
+def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, bytes, float]:
+    if args.compressed_backend == "python":
+        data = input_path.read_bytes()
+        start = time.perf_counter()
+        encoded = compressed_reference(data, args)
+        elapsed = time.perf_counter() - start
+        output_path.write_bytes(encoded)
+        return "PYTHON_LZMA_REFERENCE", encoded, elapsed
+
+    exe = args.compressed_cmodel if args.compressed_backend == "liblzma" else args.rtl_cmodel
+    cmd = [str(exe), *common_cmodel_args(args)]
+    if args.compressed_backend == "rtl":
+        cmd += ["--chunk-size", str(args.chunk_size)]
+    cmd += [str(input_path), str(output_path)]
     start = time.perf_counter()
     run(cmd)
     elapsed = time.perf_counter() - start
@@ -101,6 +105,7 @@ def main() -> None:
     parser.add_argument("--pb", type=int, default=0)
     parser.add_argument("--nice-len", type=int, default=64)
     parser.add_argument("--depth", type=int, default=16)
+    parser.add_argument("--chunk-size", type=int, default=65536)
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

@@ -192,6 +192,10 @@ matches the intended hardware subset: HC4, fast mode, configurable dictionary,
 path to the standalone C binary backed by liblzma, so the functional cases and
 five-file benchmark both exercise a C executable using real HC4/range coding.
 `make cmodel-gate-rtl` instead uses the self-contained RTL-friendly encoder.
+All three compressed backends are driven from the same Makefile knobs:
+`CMODEL_DICT_KIB`, `CMODEL_LC`, `CMODEL_LP`, `CMODEL_PB`,
+`CMODEL_NICE_LEN`, and `CMODEL_DEPTH`; the RTL backend also receives
+`CMODEL_CHUNK_SIZE` explicitly.
 
 Parameter sweeps can be run on the same five-file corpus:
 

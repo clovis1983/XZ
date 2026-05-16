@@ -121,28 +121,32 @@ def cmodel_encode_uncompressed(
     return elapsed
 
 
+def common_cmodel_args(args: argparse.Namespace) -> list[str]:
+    return [
+        "--check",
+        "1",
+        "--dict-kib",
+        str(args.dict_kib),
+        "--lc",
+        str(args.lc),
+        "--lp",
+        str(args.lp),
+        "--pb",
+        str(args.pb),
+        "--nice-len",
+        str(args.nice_len),
+        "--depth",
+        str(args.depth),
+    ]
+
+
 def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, float]:
     if args.compressed_backend in ("liblzma", "rtl"):
         exe = args.compressed_cmodel if args.compressed_backend == "liblzma" else args.rtl_cmodel
-        cmd = [
-            str(exe),
-            "--check",
-            "1",
-            "--dict-kib",
-            str(args.dict_kib),
-            "--lc",
-            str(args.lc),
-            "--lp",
-            str(args.lp),
-            "--pb",
-            str(args.pb),
-            "--nice-len",
-            str(args.nice_len),
-            "--depth",
-            str(args.depth),
-            str(input_path),
-            str(output_path),
-        ]
+        cmd = [str(exe), *common_cmodel_args(args)]
+        if args.compressed_backend == "rtl":
+            cmd += ["--chunk-size", str(args.chunk_size)]
+        cmd += [str(input_path), str(output_path)]
         start = time.perf_counter()
         run(cmd)
         elapsed = time.perf_counter() - start
@@ -158,7 +162,7 @@ def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse
             desc = (
                 "standalone RTL-friendly C LZMA2 HC4 greedy range "
                 f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
-                f"nice={args.nice_len} depth={args.depth}"
+                f"nice={args.nice_len} depth={args.depth} chunk={args.chunk_size}"
             )
         return desc, elapsed
 

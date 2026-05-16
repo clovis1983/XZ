@@ -78,7 +78,7 @@ cmodel-test: cmodel
 	python3 -c 'import lzma, pathlib; assert lzma.decompress(pathlib.Path("$(CMODEL_BUILD_DIR)/model.xz").read_bytes()) == pathlib.Path("tb/out_input.bin").read_bytes(); print("cmodel round-trip ok")'
 
 cmodel-func: cmodel
-	python3 scripts/cmodel_func.py --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --rtl-cmodel $(CMODEL_RTL) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH)
+	python3 scripts/cmodel_func.py --cmodel $(CMODEL) --compressed-cmodel $(CMODEL_LZMA) --rtl-cmodel $(CMODEL_RTL) --compressed-backend $(CMODEL_COMPRESSED_BACKEND) --dict-kib $(CMODEL_DICT_KIB) --lc $(CMODEL_LC) --lp $(CMODEL_LP) --pb $(CMODEL_PB) --nice-len $(CMODEL_NICE_LEN) --depth $(CMODEL_DEPTH) --chunk-size $(CMODEL_CHUNK_SIZE)
 
 bench-corpus:
 	python3 scripts/gen_bench_corpus.py --out-dir $(BENCH_CORPUS_DIR)
