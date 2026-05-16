@@ -695,7 +695,7 @@ static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *
         else
             (void)hc4_insert(&hc, data, len, pos);
 
-        if (cfg->enable_matches && m.len >= 4) {
+        if (cfg->enable_matches && cfg->pb == 0 && m.len >= 4) {
             if (lzma_match(&enc, &rc, pos, m.len, m.dist) != 0)
                 goto out_hc;
             for (uint32_t i = 1; i < m.len && pos + i < len; ++i)
@@ -773,7 +773,8 @@ static int encode_lzma2_payload(const uint8_t *data, uint64_t len, const xz_cfg_
 
         vec_t compressed;
         int use_compressed = 0;
-        if (!cfg->force_uncompressed && lzma_encode_chunk(data + pos, chunk, cfg, &compressed, stats) == 0) {
+        if (!cfg->force_uncompressed && cfg->pb == 0 &&
+            lzma_encode_chunk(data + pos, chunk, cfg, &compressed, stats) == 0) {
             use_compressed = compressed.len < chunk && compressed.len <= 65536U;
         } else {
             memset(&compressed, 0, sizeof(compressed));
@@ -1001,11 +1002,11 @@ static void usage(const char *argv0)
             "usage: %s [options] <input> <output.xz>\n"
             "options:\n"
             "  --check 0|1|4       XZ check: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary KiB: 64, 256, or 1024 (default 256)\n"
+            "  --dict-kib N        Dictionary KiB: 64, 256, or 1024 (default 64)\n"
             "  --dict-prop N       Raw LZMA2 dictionary property\n"
-            "  --lc N              Literal context bits, lc+lp<=4 (default 4)\n"
+            "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"
-            "  --pb N              Position bits, <=4 (default 0)\n"
+            "  --pb N              Position bits, <=4 (default 2)\n"
             "  --nice-len N        HC4 greedy nice length, 4..273 (default 64)\n"
             "  --depth N           HC4 chain depth (default 16)\n"
             "  --chunk-size N      LZMA2 chunk size, <=65536 (default 65536)\n"
@@ -1017,11 +1018,11 @@ static void usage(const char *argv0)
 int main(int argc, char **argv)
 {
     xz_cfg_t cfg = {
-        .dict_kib = 256,
-        .dict_prop = 12,
-        .lc = 4,
+        .dict_kib = 64,
+        .dict_prop = 8,
+        .lc = 3,
         .lp = 0,
-        .pb = 0,
+        .pb = 2,
         .nice_len = 64,
         .depth = 16,
         .chunk_size = 65536,

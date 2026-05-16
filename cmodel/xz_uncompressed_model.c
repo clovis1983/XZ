@@ -348,11 +348,11 @@ static void usage(const char *argv0)
             "usage: %s [options] <input> <output.xz>\n"
             "options:\n"
             "  --check 0|1|4       XZ check type: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary size in KiB: 64, 256, or 1024 (default 256)\n"
+            "  --dict-kib N        Dictionary size in KiB: 64, 256, or 1024 (default 64)\n"
             "  --dict-prop N       Raw LZMA2 dict property, kept for RTL compatibility\n"
-            "  --lc N              Literal context bits, lc+lp<=4 (default 4)\n"
+            "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"
-            "  --pb N              Position bits, <=4 (default 0)\n"
+            "  --pb N              Position bits, <=4 (default 2)\n"
             "  --nice-len N        Match nice length for future HC4 parser (default 64)\n"
             "  --depth N           Match search depth for future HC4 parser (default 16)\n"
             "  --chunk-size N      LZMA2 chunk size, <=65536 (default 65536)\n",
@@ -371,11 +371,11 @@ int main(int argc, char **argv)
     unsigned index_size = 0;
     uint32_t tmp = 0;
     xz_lzma2_cfg_t cfg = {
-        .dict_kib = 256,
-        .dict_prop = 12,
-        .lc = 4,
+        .dict_kib = 64,
+        .dict_prop = 8,
+        .lc = 3,
         .lp = 0,
-        .pb = 0,
+        .pb = 2,
         .nice_len = 64,
         .depth = 16,
         .chunk_size = 65536,

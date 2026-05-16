@@ -213,10 +213,10 @@ static void usage(const char *argv0)
             "usage: %s [options] <input> <output.xz>\n"
             "options:\n"
             "  --check 0|1|4       XZ check type: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary size in KiB (default 256)\n"
-            "  --lc N              Literal context bits, lc+lp<=4 (default 4)\n"
+            "  --dict-kib N        Dictionary size in KiB (default 64)\n"
+            "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"
-            "  --pb N              Position bits, <=4 (default 0)\n"
+            "  --pb N              Position bits, <=4 (default 2)\n"
             "  --nice-len N        LZMA nice length (default 64)\n"
             "  --depth N           HC4 search depth (default 16)\n",
             argv0);
@@ -225,10 +225,10 @@ static void usage(const char *argv0)
 int main(int argc, char **argv)
 {
     xz_liblzma_cfg_t cfg = {
-        .dict_kib = 256,
-        .lc = 4,
+        .dict_kib = 64,
+        .lc = 3,
         .lp = 0,
-        .pb = 0,
+        .pb = 2,
         .nice_len = 64,
         .depth = 16,
         .check = LZMA_CHECK_CRC32,

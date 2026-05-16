@@ -71,8 +71,8 @@ core:
 
 ```sh
 build/cmodel/xz_uncompressed_model \
-  --dict-kib 256 \
-  --lc 4 --lp 0 --pb 0 \
+  --dict-kib 64 \
+  --lc 3 --lp 0 --pb 2 \
   --nice-len 64 \
   --depth 16 \
   --check 1 \
@@ -88,8 +88,8 @@ There is also a liblzma-backed compressed C model:
 ```sh
 make cmodel-liblzma
 build/cmodel/xz_liblzma_model \
-  --dict-kib 256 \
-  --lc 4 --lp 0 --pb 0 \
+  --dict-kib 64 \
+  --lc 3 --lp 0 --pb 2 \
   --nice-len 64 \
   --depth 16 \
   input.bin output.xz
@@ -106,8 +106,8 @@ The standalone RTL-friendly compressed C model is:
 ```sh
 make cmodel-rtl
 build/cmodel/xz_rtl_model \
-  --dict-kib 256 \
-  --lc 4 --lp 0 --pb 0 \
+  --dict-kib 64 \
+  --lc 3 --lp 0 --pb 2 \
   --nice-len 64 \
   --depth 16 \
   input.bin output.xz
@@ -118,7 +118,9 @@ bit-serial range encoder, literal path, normal-match path, HC4-style hash-chain
 match finder, greedy parser, LZMA2 chunk packetizer, incompressible fallback,
 and `.xz` container/check generation. It intentionally omits rep-match and
 optimum parsing for now, so it is the first RTL mapping baseline rather than a
-compression-ratio upper bound.
+compression-ratio upper bound. The current compressed range path is enabled
+only for `pb=0`; with the default `pb=2`, the RTL-friendly model uses the valid
+LZMA2 uncompressed fallback until the pb-aware range path is closed.
 
 It prints:
 
