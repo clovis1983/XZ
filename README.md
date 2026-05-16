@@ -105,6 +105,19 @@ or as one command:
 make cmodel-gate
 ```
 
+To compare the hardware-target compressed parameter set against the best XZ
+baseline:
+
+```sh
+make cmodel-gate CMODEL_MODE=compressed
+```
+
+Compressed mode currently uses Python `lzma` with an explicit LZMA2 filter that
+matches the intended hardware subset: HC4, fast mode, 256 KiB dictionary,
+`lc/lp/pb=3/0/2`, `nice_len=32`, and `depth=16`. The standalone C range-coder
+and HC4 implementation is still the next coding step, but this mode gives an
+immediate apples-to-apples `.xz` comparison against `xz -9e`.
+
 `bench-corpus` deterministically generates five benchmark binaries:
 
 - two software-program style files (`prog_a.bin`, `prog_b.bin`)

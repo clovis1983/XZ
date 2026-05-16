@@ -51,13 +51,38 @@ def baseline_encode(input_path: Path, output_path: Path) -> tuple[str, float]:
     return tool, elapsed
 
 
-def cmodel_encode(cmodel: Path, input_path: Path, output_path: Path, chunk_size: int) -> float:
+def cmodel_encode_uncompressed(cmodel: Path, input_path: Path, output_path: Path, chunk_size: int) -> float:
     start = time.perf_counter()
     run([str(cmodel), "--check", "1", "--chunk-size", str(chunk_size), str(input_path), str(output_path)])
     elapsed = time.perf_counter() - start
     if lzma.decompress(output_path.read_bytes()) != input_path.read_bytes():
         raise SystemExit(f"cmodel decode mismatch: {input_path}")
     return elapsed
+
+
+def cmodel_encode_compressed(input_path: Path, output_path: Path) -> tuple[str, float]:
+    data = input_path.read_bytes()
+    filters = [
+        {
+            "id": lzma.FILTER_LZMA2,
+            "dict_size": 256 * 1024,
+            "lc": 3,
+            "lp": 0,
+            "pb": 2,
+            "mode": lzma.MODE_FAST,
+            "nice_len": 32,
+            "mf": lzma.MF_HC4,
+            "depth": 16,
+        }
+    ]
+    start = time.perf_counter()
+    encoded = lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
+    output_path.write_bytes(encoded)
+    elapsed = time.perf_counter() - start
+    if lzma.decompress(encoded) != data:
+        raise SystemExit(f"compressed cmodel proxy decode mismatch: {input_path}")
+    desc = "python-lzma LZMA2 HC4 fast dict=256KiB lc=3 lp=0 pb=2 nice=32 depth=16"
+    return desc, elapsed
 
 
 def decode_time(path: Path) -> float:
@@ -81,6 +106,7 @@ def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: 
         "cmodel_bytes",
         "xz_bytes",
         "uncompressed_xz_bytes",
+        "cmodel_mode",
         "cmodel_to_xz",
         "cmodel_enc_MBps",
         "cmodel_dec_MBps",
@@ -92,7 +118,7 @@ def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: 
         "",
         f"- baseline_version: `{xz_ver}`",
         f"- baseline_is_xz_5_8_3: `{is_583}`",
-        "- cmodel_compressed_status: `PENDING_RANGE_CODER_HC4`",
+        "- compressed_mode_note: `python-lzma custom LZMA2 is used as the compressed C-model reference until the standalone C range-coder/HC4 model lands`",
         "",
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
@@ -108,6 +134,7 @@ def main() -> None:
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/reports"))
     parser.add_argument("--chunk-size", type=int, default=65536)
+    parser.add_argument("--mode", choices=["uncompressed", "compressed"], default="uncompressed")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -123,9 +150,16 @@ def main() -> None:
         input_path = Path(item["path"])
         input_bytes = input_path.stat().st_size
         cmodel_xz = encoded_dir / f"{name}.cmodel.xz"
+        uncompressed_xz = encoded_dir / f"{name}.uncompressed.xz"
         baseline_xz = encoded_dir / f"{name}.bestxz.xz"
 
-        c_enc = cmodel_encode(args.cmodel, input_path, cmodel_xz, args.chunk_size)
+        unc_enc = cmodel_encode_uncompressed(args.cmodel, input_path, uncompressed_xz, args.chunk_size)
+        if args.mode == "compressed":
+            cmodel_tool, c_enc = cmodel_encode_compressed(input_path, cmodel_xz)
+        else:
+            cmodel_tool = "standalone C model LZMA2 uncompressed chunks"
+            cmodel_xz.write_bytes(uncompressed_xz.read_bytes())
+            c_enc = unc_enc
         c_dec = decode_time(cmodel_xz)
         baseline_tool, xz_enc = baseline_encode(input_path, baseline_xz)
         xz_dec = decode_time(baseline_xz)
@@ -140,13 +174,15 @@ def main() -> None:
             "input_bytes": str(input_bytes),
             "cmodel_bytes": str(c_bytes),
             "xz_bytes": str(xz_bytes),
-            "uncompressed_xz_bytes": str(c_bytes),
+            "uncompressed_xz_bytes": str(uncompressed_xz.stat().st_size),
+            "cmodel_mode": args.mode,
             "cmodel_to_xz": f"{factor:.4f}",
             "cmodel_enc_MBps": f"{mbps(input_bytes, c_enc):.2f}",
             "cmodel_dec_MBps": f"{mbps(input_bytes, c_dec):.2f}",
             "xz_enc_MBps": f"{mbps(input_bytes, xz_enc):.2f}",
             "xz_dec_MBps": f"{mbps(input_bytes, xz_dec):.2f}",
             "baseline_tool": baseline_tool,
+            "cmodel_tool": cmodel_tool,
         }
         rows.append(row)
         print(

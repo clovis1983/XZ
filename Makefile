@@ -16,6 +16,7 @@ CMODEL ?= $(CMODEL_BUILD_DIR)/xz_uncompressed_model
 CMODEL_CHECK ?= 1
 CMODEL_DICT_PROP ?= 12
 CMODEL_CHUNK_SIZE ?= 65536
+CMODEL_MODE ?= uncompressed
 BENCH_CORPUS_DIR ?= build/bench_corpus
 BENCH_MANIFEST ?= $(BENCH_CORPUS_DIR)/manifest.json
 CMODEL_REPORT_DIR ?= $(CMODEL_BUILD_DIR)/reports
@@ -57,7 +58,7 @@ bench-corpus:
 	python3 scripts/gen_bench_corpus.py --out-dir $(BENCH_CORPUS_DIR)
 
 cmodel-bench: cmodel-func bench-corpus
-	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE)
+	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE)
 
 cmodel-gate: cmodel-bench
 
