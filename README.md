@@ -117,6 +117,8 @@ matches the intended hardware subset: HC4, fast mode, 256 KiB dictionary,
 `lc/lp/pb=3/0/2`, `nice_len=32`, and `depth=16`. The standalone C range-coder
 and HC4 implementation is still the next coding step, but this mode gives an
 immediate apples-to-apples `.xz` comparison against `xz -9e`.
+`make cmodel-func` also validates this compressed reference on the functional
+case set before benchmark results are emitted.
 
 `bench-corpus` deterministically generates five benchmark binaries:
 

@@ -12,6 +12,7 @@ import argparse
 import lzma
 import random
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -31,6 +32,23 @@ def make_cases(out_dir: Path) -> list[tuple[str, bytes, int]]:
         ("crc64", bytes((128 + ((i // 17) % 11) - 5) & 0xFF for i in range(32768)), 4096),
         ("fallback_like_noise", bytes(rng.randrange(0, 256) for _ in range(90000)), 65536),
     ]
+
+
+def compressed_reference(data: bytes) -> bytes:
+    filters = [
+        {
+            "id": lzma.FILTER_LZMA2,
+            "dict_size": 256 * 1024,
+            "lc": 3,
+            "lp": 0,
+            "pb": 2,
+            "mode": lzma.MODE_FAST,
+            "nice_len": 32,
+            "mf": lzma.MF_HC4,
+            "depth": 16,
+        }
+    ]
+    return lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
 
 
 def main() -> None:
@@ -67,8 +85,26 @@ def main() -> None:
         print(f"PASS {name}: {result.stdout.strip()}")
         passed += 1
 
+    compressed_passed = 0
+    for name, data, _chunk_size in cases:
+        start = time.perf_counter()
+        encoded = compressed_reference(data)
+        elapsed = time.perf_counter() - start
+        if lzma.decompress(encoded) != data:
+            raise SystemExit(f"compressed reference mismatch: {name}")
+        xz_path = args.out_dir / f"{name}.compressed_ref.xz"
+        xz_path.write_bytes(encoded)
+        ratio = 0.0 if len(data) == 0 else len(encoded) / len(data)
+        mbps = 0.0 if elapsed <= 0 else len(data) / elapsed / (1024 * 1024)
+        print(
+            f"PASS_COMPRESSED_REF {name}: input_bytes={len(data)} output_bytes={len(encoded)} "
+            f"ratio={ratio:.6f} enc_MBps={mbps:.2f}"
+        )
+        compressed_passed += 1
+
     print(f"functional_pass={passed}/{len(cases)}")
-    print("compressed_lzma2_cmodel_status=PENDING_RANGE_CODER_HC4")
+    print(f"compressed_reference_pass={compressed_passed}/{len(cases)}")
+    print("compressed_lzma2_cmodel_status=PYTHON_LZMA_REFERENCE_PASS_STANDALONE_C_PENDING")
 
 
 if __name__ == "__main__":
