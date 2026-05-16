@@ -2,8 +2,8 @@
 """Functional gate for the current C model.
 
 This validates the internal RTL-equivalent uncompressed C model before any
-benchmarking is allowed. The compressed LZMA2 C model is intentionally reported
-as pending until the range-coder/HC4 implementation lands.
+benchmarking is allowed. It can also validate the compressed LZMA2 backend used
+by the benchmark flow.
 """
 
 from __future__ import annotations
@@ -51,9 +51,45 @@ def compressed_reference(data: bytes, args: argparse.Namespace) -> bytes:
     return lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
 
 
+def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, bytes, float]:
+    if args.compressed_backend == "python":
+        data = input_path.read_bytes()
+        start = time.perf_counter()
+        encoded = compressed_reference(data, args)
+        elapsed = time.perf_counter() - start
+        output_path.write_bytes(encoded)
+        return "PYTHON_LZMA_REFERENCE", encoded, elapsed
+
+    cmd = [
+        str(args.compressed_cmodel),
+        "--check",
+        "1",
+        "--dict-kib",
+        str(args.dict_kib),
+        "--lc",
+        str(args.lc),
+        "--lp",
+        str(args.lp),
+        "--pb",
+        str(args.pb),
+        "--nice-len",
+        str(args.nice_len),
+        "--depth",
+        str(args.depth),
+        str(input_path),
+        str(output_path),
+    ]
+    start = time.perf_counter()
+    run(cmd)
+    elapsed = time.perf_counter() - start
+    return "STANDALONE_C_LIBLZMA_HC4_RANGE", output_path.read_bytes(), elapsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
+    parser.add_argument("--compressed-cmodel", type=Path, default=Path("build/cmodel/xz_liblzma_model"))
+    parser.add_argument("--compressed-backend", choices=["python", "liblzma"], default="python")
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/func"))
     parser.add_argument("--dict-kib", type=int, default=256)
     parser.add_argument("--lc", type=int, default=4)
@@ -105,24 +141,23 @@ def main() -> None:
 
     compressed_passed = 0
     for name, data, _chunk_size in cases:
-        start = time.perf_counter()
-        encoded = compressed_reference(data, args)
-        elapsed = time.perf_counter() - start
+        input_path = args.out_dir / f"{name}.bin"
+        xz_path = args.out_dir / f"{name}.compressed_{args.compressed_backend}.xz"
+        backend_name, encoded, elapsed = compressed_cmodel(input_path, xz_path, args)
         if lzma.decompress(encoded) != data:
-            raise SystemExit(f"compressed reference mismatch: {name}")
-        xz_path = args.out_dir / f"{name}.compressed_ref.xz"
-        xz_path.write_bytes(encoded)
+            raise SystemExit(f"compressed backend mismatch: {name}")
         ratio = 0.0 if len(data) == 0 else len(encoded) / len(data)
         mbps = 0.0 if elapsed <= 0 else len(data) / elapsed / (1024 * 1024)
         print(
-            f"PASS_COMPRESSED_REF {name}: input_bytes={len(data)} output_bytes={len(encoded)} "
-            f"ratio={ratio:.6f} enc_MBps={mbps:.2f}"
+            f"PASS_COMPRESSED_{args.compressed_backend.upper()} {name}: "
+            f"input_bytes={len(data)} output_bytes={len(encoded)} ratio={ratio:.6f} "
+            f"enc_MBps={mbps:.2f} backend={backend_name}"
         )
         compressed_passed += 1
 
     print(f"functional_pass={passed}/{len(cases)}")
-    print(f"compressed_reference_pass={compressed_passed}/{len(cases)}")
-    print("compressed_lzma2_cmodel_status=PYTHON_LZMA_REFERENCE_PASS_STANDALONE_C_PENDING")
+    print(f"compressed_backend_pass={compressed_passed}/{len(cases)}")
+    print(f"compressed_lzma2_cmodel_status={args.compressed_backend.upper()}_PASS")
 
 
 if __name__ == "__main__":

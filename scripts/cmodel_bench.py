@@ -89,6 +89,38 @@ def cmodel_encode_uncompressed(
 
 
 def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse.Namespace) -> tuple[str, float]:
+    if args.compressed_backend == "liblzma":
+        cmd = [
+            str(args.compressed_cmodel),
+            "--check",
+            "1",
+            "--dict-kib",
+            str(args.dict_kib),
+            "--lc",
+            str(args.lc),
+            "--lp",
+            str(args.lp),
+            "--pb",
+            str(args.pb),
+            "--nice-len",
+            str(args.nice_len),
+            "--depth",
+            str(args.depth),
+            str(input_path),
+            str(output_path),
+        ]
+        start = time.perf_counter()
+        run(cmd)
+        elapsed = time.perf_counter() - start
+        if lzma.decompress(output_path.read_bytes()) != input_path.read_bytes():
+            raise SystemExit(f"liblzma cmodel decode mismatch: {input_path}")
+        desc = (
+            "standalone C liblzma LZMA2 HC4 range "
+            f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
+            f"nice={args.nice_len} depth={args.depth}"
+        )
+        return desc, elapsed
+
     data = input_path.read_bytes()
     filters = [
         {
@@ -151,6 +183,7 @@ def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: 
         f"- baseline_version: `{xz_ver}`",
         f"- baseline_is_xz_5_8_3: `{is_583}`",
         "- compressed_mode_note: `python-lzma custom LZMA2 is used as the compressed reference until the standalone C range-coder/HC4 model lands`",
+        f"- compressed_backend: `{args.compressed_backend}`",
         "- compressed_reference_params: "
         f"`LZMA2 HC4 fast dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} "
         f"pb={args.pb} nice={args.nice_len} depth={args.depth} check=CRC32`",
@@ -167,6 +200,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=Path("build/bench_corpus/manifest.json"))
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
+    parser.add_argument("--compressed-cmodel", type=Path, default=Path("build/cmodel/xz_liblzma_model"))
+    parser.add_argument("--compressed-backend", choices=["python", "liblzma"], default="python")
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/reports"))
     parser.add_argument("--chunk-size", type=int, default=65536)
     parser.add_argument("--mode", choices=["uncompressed", "compressed"], default="uncompressed")

@@ -83,6 +83,24 @@ In the current standalone C model these knobs are validated, reported, and used
 for LZMA2 dictionary-property emission; `nice_len` and `depth` are wired into the
 configuration interface for the upcoming HC4/range-coder implementation.
 
+There is also a liblzma-backed compressed C model:
+
+```sh
+make cmodel-liblzma
+build/cmodel/xz_liblzma_model \
+  --dict-kib 256 \
+  --lc 4 --lp 0 --pb 0 \
+  --nice-len 64 \
+  --depth 16 \
+  input.bin output.xz
+```
+
+This path calls real liblzma LZMA2 encoding with `LZMA_MF_HC4` and
+`LZMA_MODE_FAST`, so it exercises the upstream HC4/range-coder algorithm through
+the same local C model configuration interface. By default it includes headers
+from `ref_code/xz/src/liblzma/api` and links with `-llzma`; override
+`LZMA_CFLAGS` and `LZMA_LIBS` if you build liblzma from `ref_code`.
+
 It prints:
 
 ```text
@@ -129,13 +147,18 @@ baseline:
 make cmodel-gate CMODEL_MODE=compressed
 ```
 
-Compressed mode currently uses Python `lzma` with an explicit LZMA2 filter that
+To force the compressed side to use the liblzma-backed C binary instead of the
+Python reference:
+
+```sh
+make cmodel-gate-liblzma
+```
+
+Compressed mode defaults to Python `lzma` with an explicit LZMA2 filter that
 matches the intended hardware subset: HC4, fast mode, configurable dictionary,
-`lc/lp/pb`, `nice_len`, and `depth`. The standalone C range-coder
-and HC4 implementation is still the next coding step, but this mode gives an
-immediate apples-to-apples `.xz` comparison against `xz -9e`.
-`make cmodel-func` also validates this compressed reference on the functional
-case set before benchmark results are emitted.
+`lc/lp/pb`, `nice_len`, and `depth`. `make cmodel-gate-liblzma` switches that
+path to the standalone C binary backed by liblzma, so the functional cases and
+five-file benchmark both exercise a C executable using real HC4/range coding.
 
 Parameter sweeps can be run on the same five-file corpus:
 
@@ -178,9 +201,7 @@ build/cmodel/reports/cmodel_bench.md
 
 The report compares the current C model output against `xz -9e --check=crc32`
 when an `xz` CLI is available. If `xz` is not installed, it falls back to Python
-`lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final. The
-current C model is still the RTL-equivalent uncompressed LZMA2 path; compressed
-range-coder/HC4 C model support is explicitly reported as pending.
+`lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final.
 
 ## VCS and DC
 
