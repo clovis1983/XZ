@@ -68,7 +68,8 @@ core. It is self-contained and does not call liblzma. The model emits standard
 - an HC4-style hash-chain match finder with runtime `dict_kib`,
   `nice_len`, and `depth` bounds;
 - a bounded lazy/price parser that emits literals, normal matches, and
-  repeated matches;
+  repeated matches, keeping up to four same-length HC4 candidates so distance
+  cost can break ties without a full optimum buffer;
 - LZMA2 compressed chunk headers with property reset, plus uncompressed
   fallback when a chunk is incompressible;
 - the same XZ Stream/Header/Block/Index/Footer and CRC32/CRC64 code path used
@@ -77,6 +78,10 @@ core. It is self-contained and does not call liblzma. The model emits standard
 The first RTL coding target should map this model block-for-block. A full
 liblzma-style optimum parser remains a compression-ratio improvement after this
 baseline is stable.
+
+The added parser state is intentionally small: four `(len, dist)` candidate
+registers plus simple comparators and one-position lookahead. It should not
+change the dictionary SRAM size or require BT4-style tree storage.
 
 ## Characterization Defaults
 

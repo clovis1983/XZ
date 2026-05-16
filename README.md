@@ -115,11 +115,12 @@ build/cmodel/xz_rtl_model \
 
 This model doesn't link against liblzma. It contains a local probability RAM,
 bit-serial range encoder, literal path, normal-match path, rep-match path,
-HC4-style hash-chain match finder, bounded lazy/price parser, LZMA2 chunk
-packetizer, incompressible fallback, and `.xz` container/check generation. It
-still omits liblzma's full optimum parser, so it is the first RTL mapping
-baseline rather than a compression-ratio upper bound. `--disable-matches` and
-`--disable-optimum` remain available for isolating parser paths while debugging.
+HC4-style hash-chain match finder, up to four same-length match candidates,
+bounded one-step lazy/price parser, LZMA2 chunk packetizer, incompressible
+fallback, and `.xz` container/check generation. It still omits liblzma's full
+optimum parser, so it is the first RTL mapping baseline rather than a
+compression-ratio upper bound. `--disable-matches` and `--disable-optimum`
+remain available for isolating parser paths while debugging.
 
 It prints:
 

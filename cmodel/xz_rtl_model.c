@@ -109,6 +109,11 @@ typedef struct {
     uint32_t dist;
 } match_t;
 
+typedef struct {
+    match_t v[4];
+    uint32_t count;
+} match_list_t;
+
 typedef enum {
     TOKEN_LITERAL,
     TOKEN_MATCH,
@@ -715,9 +720,67 @@ static uint32_t hc4_insert(hc4_t *hc, const uint8_t *data, uint32_t len, uint32_
     return prev;
 }
 
-static match_t hc4_find_and_insert(hc4_t *hc, const uint8_t *data, uint32_t len, uint32_t pos)
+static uint32_t length_price_est(uint32_t len);
+static uint32_t dist_price_est(uint32_t distance);
+static uint32_t token_score(uint32_t price, uint32_t len);
+
+static uint32_t normal_match_score(match_t m)
+{
+    return token_score(2U + length_price_est(m.len) + dist_price_est(m.dist), m.len);
+}
+
+static void match_list_add(match_list_t *list, match_t m)
+{
+    if (m.len < 4 || m.dist == 0)
+        return;
+
+    for (uint32_t i = 0; i < list->count; ++i) {
+        if (list->v[i].dist == m.dist) {
+            if (m.len > list->v[i].len)
+                list->v[i] = m;
+            return;
+        }
+    }
+
+    if (list->count < 4) {
+        list->v[list->count++] = m;
+    } else {
+        uint32_t worst = 0;
+        uint32_t worst_len = list->v[0].len;
+        uint32_t worst_score = normal_match_score(list->v[0]);
+        for (uint32_t i = 1; i < list->count; ++i) {
+            uint32_t score = normal_match_score(list->v[i]);
+            if (list->v[i].len < worst_len ||
+                (list->v[i].len == worst_len && score > worst_score)) {
+                worst = i;
+                worst_len = list->v[i].len;
+                worst_score = score;
+            }
+        }
+        if (m.len > worst_len ||
+            (m.len == worst_len && normal_match_score(m) < worst_score))
+            list->v[worst] = m;
+    }
+}
+
+static match_t match_list_best(const match_list_t *list)
 {
     match_t best = {0, 0};
+    uint32_t best_score = UINT32_MAX;
+    for (uint32_t i = 0; i < list->count; ++i) {
+        uint32_t score = normal_match_score(list->v[i]);
+        if (list->v[i].len > best.len ||
+            (list->v[i].len == best.len && score < best_score)) {
+            best = list->v[i];
+            best_score = score;
+        }
+    }
+    return best;
+}
+
+static match_list_t hc4_find_and_insert(hc4_t *hc, const uint8_t *data, uint32_t len, uint32_t pos)
+{
+    match_list_t list = {0};
     uint32_t prev = hc4_insert(hc, data, len, pos);
     uint32_t max_len = len - pos;
     if (max_len > LZMA_MATCH_LEN_MAX)
@@ -737,22 +800,22 @@ static match_t hc4_find_and_insert(hc4_t *hc, const uint8_t *data, uint32_t len,
         uint32_t n = 0;
         while (n < max_len && data[cand + n] == data[pos + n])
             ++n;
-        if (n >= 4 && n > best.len) {
-            best.len = n;
-            best.dist = dist;
+        if (n >= 4) {
+            match_t m = { .len = n, .dist = dist };
+            match_list_add(&list, m);
             if (n >= hc->nice_len)
                 break;
         }
         prev = hc->prev[cand % hc->dict_size];
     }
-    return best;
+    return list;
 }
 
-static match_t hc4_peek(const hc4_t *hc, const uint8_t *data, uint32_t len, uint32_t pos)
+static match_list_t hc4_peek(const hc4_t *hc, const uint8_t *data, uint32_t len, uint32_t pos)
 {
-    match_t best = {0, 0};
+    match_list_t list = {0};
     if (pos + 4U > len)
-        return best;
+        return list;
 
     uint32_t h = hc4_hash(data + pos, len - pos, hc->hash_mask);
     uint32_t prev = hc->head[h];
@@ -773,15 +836,15 @@ static match_t hc4_peek(const hc4_t *hc, const uint8_t *data, uint32_t len, uint
         uint32_t n = 0;
         while (n < max_len && data[cand + n] == data[pos + n])
             ++n;
-        if (n >= 4 && n > best.len) {
-            best.len = n;
-            best.dist = dist;
+        if (n >= 4) {
+            match_t m = { .len = n, .dist = dist };
+            match_list_add(&list, m);
             if (n >= hc->nice_len)
                 break;
         }
         prev = hc->prev[cand % hc->dict_size];
     }
-    return best;
+    return list;
 }
 
 static uint32_t rep_len_at(const lzma_enc_t *enc, const uint8_t *data, uint32_t len,
@@ -849,7 +912,7 @@ static uint32_t token_score(uint32_t price, uint32_t len)
 
 static token_t choose_token(const xz_cfg_t *cfg, const lzma_enc_t *enc, const hc4_t *hc,
                             const uint8_t *data, uint32_t len, uint32_t pos,
-                            match_t normal)
+                            const match_list_t *normal)
 {
     token_t best = { .kind = TOKEN_LITERAL, .len = 1, .dist = 0, .rep = 0 };
     uint32_t best_score = token_score(9U, 1U);
@@ -872,21 +935,38 @@ static token_t choose_token(const xz_cfg_t *cfg, const lzma_enc_t *enc, const hc
         }
     }
 
-    if (normal.len >= 4) {
-        uint32_t price = match_price_est(normal.len, normal.dist);
-        uint32_t score = token_score(price, normal.len);
+    match_t normal_best = match_list_best(normal);
+    if (normal_best.len >= 4) {
+        uint32_t price = match_price_est(normal_best.len, normal_best.dist);
+        uint32_t score = token_score(price, normal_best.len);
         if (score < best_score) {
             best.kind = TOKEN_MATCH;
-            best.len = normal.len;
-            best.dist = normal.dist;
+            best.len = normal_best.len;
+            best.dist = normal_best.dist;
             best.rep = 0;
             best_score = score;
+        }
+
+        for (uint32_t i = 0; i < normal->count; ++i) {
+            match_t m = normal->v[i];
+            if (m.len < normal_best.len)
+                continue;
+            price = match_price_est(m.len, m.dist);
+            score = token_score(price, m.len);
+            if (score + 32U < best_score) {
+                best.kind = TOKEN_MATCH;
+                best.len = m.len;
+                best.dist = m.dist;
+                best.rep = 0;
+                best_score = score;
+            }
         }
     }
 
     if (cfg->enable_optimum && best.kind == TOKEN_MATCH && best.len < cfg->nice_len &&
         pos + 1U < len) {
-        match_t next = hc4_peek(hc, data, len, pos + 1U);
+        match_list_t next_list = hc4_peek(hc, data, len, pos + 1U);
+        match_t next = match_list_best(&next_list);
         if (next.len >= best.len + 2U) {
             best.kind = TOKEN_LITERAL;
             best.len = 1;
@@ -915,13 +995,13 @@ static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *
 
     uint32_t pos = 0;
     while (pos < len) {
-        match_t m = {0, 0};
+        match_list_t matches = {0};
         if (pos != 0)
-            m = hc4_find_and_insert(&hc, data, len, pos);
+            matches = hc4_find_and_insert(&hc, data, len, pos);
         else
             (void)hc4_insert(&hc, data, len, pos);
 
-        token_t token = choose_token(cfg, &enc, &hc, data, len, pos, m);
+        token_t token = choose_token(cfg, &enc, &hc, data, len, pos, &matches);
         if (token.kind == TOKEN_MATCH) {
             if (lzma_match(&enc, &rc, pos, token.len, token.dist) != 0)
                 goto out_hc;
