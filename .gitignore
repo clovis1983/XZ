@@ -1,4 +1,5 @@
 build/
+ref_code/
 tb/*.vvp
 tb/out_*.xz
 tb/out_*.bin
