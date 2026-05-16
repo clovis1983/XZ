@@ -119,8 +119,8 @@ match finder, greedy parser, LZMA2 chunk packetizer, incompressible fallback,
 and `.xz` container/check generation. It intentionally omits rep-match and
 optimum parsing for now, so it is the first RTL mapping baseline rather than a
 compression-ratio upper bound. The current compressed range path is enabled
-only for `pb=0`; with the default `pb=2`, the RTL-friendly model uses the valid
-LZMA2 uncompressed fallback until the pb-aware range path is closed.
+for the default `pb=2` setting; `--disable-matches` remains available for
+literal-path isolation when debugging.
 
 It prints:
 

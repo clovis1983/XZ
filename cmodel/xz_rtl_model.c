@@ -410,6 +410,8 @@ static int rc_bittree_reverse_offset(rc_t *rc, prob_t *probs, int32_t offset,
 
 static int rc_flush(rc_t *rc)
 {
+    if (rc_normalize(rc) != 0)
+        return -1;
     for (int i = 0; i < 5; ++i) {
         if (rc_shift_low(rc) != 0)
             return -1;
@@ -695,7 +697,7 @@ static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *
         else
             (void)hc4_insert(&hc, data, len, pos);
 
-        if (cfg->enable_matches && cfg->pb == 0 && m.len >= 4) {
+        if (cfg->enable_matches && m.len >= 4) {
             if (lzma_match(&enc, &rc, pos, m.len, m.dist) != 0)
                 goto out_hc;
             for (uint32_t i = 1; i < m.len && pos + i < len; ++i)
@@ -773,7 +775,7 @@ static int encode_lzma2_payload(const uint8_t *data, uint64_t len, const xz_cfg_
 
         vec_t compressed;
         int use_compressed = 0;
-        if (!cfg->force_uncompressed && cfg->pb == 0 &&
+        if (!cfg->force_uncompressed &&
             lzma_encode_chunk(data + pos, chunk, cfg, &compressed, stats) == 0) {
             use_compressed = compressed.len < chunk && compressed.len <= 65536U;
         } else {
