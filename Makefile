@@ -97,11 +97,11 @@ cmodel-gate-liblzma: cmodel-liblzma
 cmodel-gate-rtl: cmodel-rtl
 	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=rtl
 
-param-sweep: bench-corpus
-	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP)
+param-sweep: cmodel-rtl bench-corpus
+	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --backend rtl --rtl-cmodel $(CMODEL_RTL) --chunk-size $(CMODEL_CHUNK_SIZE) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP)
 
 param-sweep-upper: bench-corpus
-	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP) --include-upper-bound
+	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --backend liblzma --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP) --include-upper-bound
 
 ratio: cmodel
 	test -n "$(INPUT)" || (echo "usage: make ratio INPUT=/path/to/file [CMODEL_CHECK=1] [CMODEL_CHUNK_SIZE=65536]" && false)

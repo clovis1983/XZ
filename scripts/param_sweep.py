@@ -14,6 +14,7 @@ import json
 import lzma
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +69,7 @@ def mf_value(name: str) -> int:
     }[name]
 
 
-def compress_with_params(data: bytes, params: Params) -> bytes:
+def compress_with_liblzma(data: bytes, params: Params) -> bytes:
     filters = [
         {
             "id": lzma.FILTER_LZMA2,
@@ -83,6 +84,45 @@ def compress_with_params(data: bytes, params: Params) -> bytes:
         }
     ]
     return lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, filters=filters)
+
+
+def compress_with_rtl_cmodel(data: bytes, params: Params, args: argparse.Namespace) -> bytes:
+    with tempfile.TemporaryDirectory(prefix="xz_rtl_sweep_") as tmp:
+        tmp_dir = Path(tmp)
+        input_path = tmp_dir / "input.bin"
+        output_path = tmp_dir / "output.xz"
+        input_path.write_bytes(data)
+        cmd = [
+            str(args.rtl_cmodel),
+            "--check",
+            "1",
+            "--dict-kib",
+            str(params.dict_kib),
+            "--lc",
+            str(params.lc),
+            "--lp",
+            str(params.lp),
+            "--pb",
+            str(params.pb),
+            "--nice-len",
+            str(params.nice_len),
+            "--depth",
+            str(params.depth),
+            "--chunk-size",
+            str(args.chunk_size),
+            str(input_path),
+            str(output_path),
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return output_path.read_bytes()
+
+
+def compress_with_params(data: bytes, params: Params, args: argparse.Namespace) -> bytes:
+    if args.backend == "rtl":
+        if params.mode_name != "fast" or params.mf_name != "hc4":
+            return compress_with_liblzma(data, params)
+        return compress_with_rtl_cmodel(data, params, args)
+    return compress_with_liblzma(data, params)
 
 
 def parse_int_list(text: str) -> list[int]:
@@ -150,8 +190,14 @@ def main() -> None:
     parser.add_argument("--nice-len", default="16,32,64")
     parser.add_argument("--depth", default="4,8,16,32")
     parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--backend", choices=["rtl", "liblzma"], default="rtl")
+    parser.add_argument("--rtl-cmodel", type=Path, default=Path("build/cmodel/xz_rtl_model"))
+    parser.add_argument("--chunk-size", type=int, default=65536)
     parser.add_argument("--include-upper-bound", action="store_true")
     args = parser.parse_args()
+
+    if args.backend == "rtl" and not args.rtl_cmodel.exists():
+        raise SystemExit(f"missing RTL C model executable: {args.rtl_cmodel}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(args.manifest.read_text())
@@ -178,7 +224,7 @@ def main() -> None:
 
         for name, data in files:
             start = time.perf_counter()
-            encoded = compress_with_params(data, params)
+            encoded = compress_with_params(data, params, args)
             elapsed = time.perf_counter() - start
             if lzma.decompress(encoded) != data:
                 raise SystemExit(f"decode mismatch: {params.label()} {name}")

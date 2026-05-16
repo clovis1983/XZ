@@ -199,7 +199,9 @@ All three compressed backends are driven from the same Makefile knobs:
 `CMODEL_NICE_LEN`, and `CMODEL_DEPTH`; the RTL backend also receives
 `CMODEL_CHUNK_SIZE` explicitly.
 
-Parameter sweeps can be run on the same five-file corpus:
+Parameter sweeps can be run on the same five-file corpus. The default target
+uses the RTL-friendly C model (`build/cmodel/xz_rtl_model`) for each parameter
+point, with `xz -9e --check=crc32` kept as the ratio baseline:
 
 ```sh
 make param-sweep
@@ -223,8 +225,9 @@ build/cmodel/reports/param_sweep_summary.csv
 build/cmodel/reports/param_sweep_top.md
 ```
 
-`make param-sweep-upper` additionally includes BT4/NORMAL as a compression-ratio
-upper-bound reference; that setting is not the first RTL target.
+`make param-sweep-upper` uses the host liblzma/Python LZMA path and additionally
+includes BT4/NORMAL as a compression-ratio upper-bound reference; that setting is
+not the first RTL target.
 
 `bench-corpus` deterministically generates five benchmark binaries:
 
