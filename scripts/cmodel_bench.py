@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import lzma
 import shutil
@@ -28,6 +29,20 @@ def xz_version() -> tuple[str, bool]:
     return out, "5.8.3" in out
 
 
+def gzip_version() -> str:
+    gz = shutil.which("gzip")
+    if not gz:
+        return "python gzip module (gzip CLI not found)"
+    try:
+        completed = subprocess.run([gz, "--version"], check=False, text=True, capture_output=True)
+        text = (completed.stdout or completed.stderr).strip().splitlines()
+        if text:
+            return text[0]
+    except Exception:
+        return "gzip CLI present but version query failed"
+    return "gzip CLI present but version query failed"
+
+
 def baseline_encode(input_path: Path, output_path: Path) -> tuple[str, float]:
     xz = shutil.which("xz")
     data = input_path.read_bytes()
@@ -48,6 +63,24 @@ def baseline_encode(input_path: Path, output_path: Path) -> tuple[str, float]:
     elapsed = time.perf_counter() - start
     if lzma.decompress(output_path.read_bytes()) != data:
         raise SystemExit(f"baseline decode mismatch: {input_path}")
+    return tool, elapsed
+
+
+def gzip_encode(input_path: Path, output_path: Path) -> tuple[str, float]:
+    gz = shutil.which("gzip")
+    data = input_path.read_bytes()
+    start = time.perf_counter()
+    if gz:
+        encoded = subprocess.check_output([gz, "-9", "-c", str(input_path)])
+        output_path.write_bytes(encoded)
+        tool = "gzip -9"
+    else:
+        encoded = gzip.compress(data, compresslevel=9)
+        output_path.write_bytes(encoded)
+        tool = "python gzip compresslevel=9"
+    elapsed = time.perf_counter() - start
+    if gzip.decompress(output_path.read_bytes()) != data:
+        raise SystemExit(f"gzip decode mismatch: {input_path}")
     return tool, elapsed
 
 
@@ -164,32 +197,52 @@ def decode_time(path: Path) -> float:
     return time.perf_counter() - start
 
 
+def gzip_decode_time(path: Path) -> float:
+    data = path.read_bytes()
+    start = time.perf_counter()
+    gzip.decompress(data)
+    return time.perf_counter() - start
+
+
 def mbps(byte_count: int, seconds: float) -> float:
     if seconds <= 0:
         return 0.0
     return byte_count / seconds / (1024 * 1024)
 
 
-def write_markdown(rows: list[dict[str, str]], path: Path, xz_ver: str, is_583: bool, args: argparse.Namespace) -> None:
+def write_markdown(
+    rows: list[dict[str, str]],
+    path: Path,
+    xz_ver: str,
+    is_583: bool,
+    gz_ver: str,
+    args: argparse.Namespace,
+) -> None:
     headers = [
         "name",
         "category",
         "input_bytes",
         "cmodel_bytes",
         "xz_bytes",
+        "gzip_bytes",
         "uncompressed_xz_bytes",
         "cmodel_mode",
         "cmodel_to_xz",
+        "cmodel_to_gzip",
         "cmodel_enc_MBps",
         "cmodel_dec_MBps",
         "xz_enc_MBps",
         "xz_dec_MBps",
+        "gzip_enc_MBps",
+        "gzip_dec_MBps",
     ]
     lines = [
         "# C Model Benchmark Report",
         "",
         f"- baseline_version: `{xz_ver}`",
         f"- baseline_is_xz_5_8_3: `{is_583}`",
+        f"- gzip_version: `{gz_ver}`",
+        "- gzip_reference_params: `gzip -9`",
         "- compressed_mode_note: `backend may be python reference, liblzma reference, or standalone RTL-friendly C model`",
         f"- compressed_backend: `{args.compressed_backend}`",
         "- compressed_reference_params: "
@@ -228,6 +281,7 @@ def main() -> None:
 
     manifest = json.loads(args.manifest.read_text())
     version, is_583 = xz_version()
+    gz_version = gzip_version()
     rows: list[dict[str, str]] = []
 
     for item in manifest["files"]:
@@ -237,6 +291,7 @@ def main() -> None:
         cmodel_xz = encoded_dir / f"{name}.cmodel.xz"
         uncompressed_xz = encoded_dir / f"{name}.uncompressed.xz"
         baseline_xz = encoded_dir / f"{name}.bestxz.xz"
+        baseline_gz = encoded_dir / f"{name}.gzip.gz"
 
         unc_enc = cmodel_encode_uncompressed(args.cmodel, input_path, uncompressed_xz, args.chunk_size, args)
         if args.mode == "compressed":
@@ -248,10 +303,14 @@ def main() -> None:
         c_dec = decode_time(cmodel_xz)
         baseline_tool, xz_enc = baseline_encode(input_path, baseline_xz)
         xz_dec = decode_time(baseline_xz)
+        gzip_tool, gz_enc = gzip_encode(input_path, baseline_gz)
+        gz_dec = gzip_decode_time(baseline_gz)
 
         c_bytes = cmodel_xz.stat().st_size
         xz_bytes = baseline_xz.stat().st_size
-        factor = c_bytes / xz_bytes if xz_bytes else 0.0
+        gz_bytes = baseline_gz.stat().st_size
+        xz_factor = c_bytes / xz_bytes if xz_bytes else 0.0
+        gz_factor = c_bytes / gz_bytes if gz_bytes else 0.0
 
         row = {
             "name": name,
@@ -259,21 +318,27 @@ def main() -> None:
             "input_bytes": str(input_bytes),
             "cmodel_bytes": str(c_bytes),
             "xz_bytes": str(xz_bytes),
+            "gzip_bytes": str(gz_bytes),
             "uncompressed_xz_bytes": str(uncompressed_xz.stat().st_size),
             "cmodel_mode": args.mode,
-            "cmodel_to_xz": f"{factor:.4f}",
+            "cmodel_to_xz": f"{xz_factor:.4f}",
+            "cmodel_to_gzip": f"{gz_factor:.4f}",
             "cmodel_enc_MBps": f"{mbps(input_bytes, c_enc):.2f}",
             "cmodel_dec_MBps": f"{mbps(input_bytes, c_dec):.2f}",
             "xz_enc_MBps": f"{mbps(input_bytes, xz_enc):.2f}",
             "xz_dec_MBps": f"{mbps(input_bytes, xz_dec):.2f}",
+            "gzip_enc_MBps": f"{mbps(input_bytes, gz_enc):.2f}",
+            "gzip_dec_MBps": f"{mbps(input_bytes, gz_dec):.2f}",
             "baseline_tool": baseline_tool,
+            "gzip_tool": gzip_tool,
             "cmodel_tool": cmodel_tool,
         }
         rows.append(row)
         print(
-            f"{name}: input={input_bytes} cmodel={c_bytes} xz={xz_bytes} "
-            f"factor={factor:.4f} c_enc={row['cmodel_enc_MBps']}MB/s "
-            f"xz_enc={row['xz_enc_MBps']}MB/s"
+            f"{name}: input={input_bytes} cmodel={c_bytes} xz={xz_bytes} gzip={gz_bytes} "
+            f"c/xz={xz_factor:.4f} c/gzip={gz_factor:.4f} "
+            f"c_enc={row['cmodel_enc_MBps']}MB/s xz_enc={row['xz_enc_MBps']}MB/s "
+            f"gzip_enc={row['gzip_enc_MBps']}MB/s"
         )
 
     csv_path = args.out_dir / "cmodel_bench.csv"
@@ -283,12 +348,13 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-    write_markdown(rows, md_path, version, is_583, args)
+    write_markdown(rows, md_path, version, is_583, gz_version, args)
 
     print(f"csv: {csv_path}")
     print(f"markdown: {md_path}")
     print(f"baseline_version: {version}")
     print(f"baseline_is_xz_5_8_3: {is_583}")
+    print(f"gzip_version: {gz_version}")
 
 
 if __name__ == "__main__":

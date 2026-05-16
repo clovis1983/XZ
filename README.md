@@ -234,7 +234,9 @@ build/cmodel/reports/cmodel_bench.md
 
 The report compares the current C model output against `xz -9e --check=crc32`
 when an `xz` CLI is available. If `xz` is not installed, it falls back to Python
-`lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final.
+`lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final. It
+also reports a `gzip -9` reference with size and encode/decode throughput, plus
+`cmodel_to_gzip` for quick comparison against a DEFLATE baseline.
 
 ## VCS and DC
 
