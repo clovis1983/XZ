@@ -20,6 +20,10 @@ CMODEL_MODE ?= uncompressed
 BENCH_CORPUS_DIR ?= build/bench_corpus
 BENCH_MANIFEST ?= $(BENCH_CORPUS_DIR)/manifest.json
 CMODEL_REPORT_DIR ?= $(CMODEL_BUILD_DIR)/reports
+SWEEP_DICT_KIB ?= 64,256,1024
+SWEEP_NICE_LEN ?= 16,32,64
+SWEEP_DEPTH ?= 4,8,16,32
+SWEEP_TOP ?= 20
 
 VCS ?= vcs
 VCS_BUILD_DIR ?= build/vcs
@@ -36,7 +40,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke cmodel cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke cmodel cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -61,6 +65,12 @@ cmodel-bench: cmodel-func bench-corpus
 	python3 scripts/cmodel_bench.py --manifest $(BENCH_MANIFEST) --cmodel $(CMODEL) --out-dir $(CMODEL_REPORT_DIR) --chunk-size $(CMODEL_CHUNK_SIZE) --mode $(CMODEL_MODE)
 
 cmodel-gate: cmodel-bench
+
+param-sweep: bench-corpus
+	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP)
+
+param-sweep-upper: bench-corpus
+	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP) --include-upper-bound
 
 ratio: cmodel
 	test -n "$(INPUT)" || (echo "usage: make ratio INPUT=/path/to/file [CMODEL_CHECK=1] [CMODEL_CHUNK_SIZE=65536]" && false)

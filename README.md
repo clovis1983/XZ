@@ -120,6 +120,33 @@ immediate apples-to-apples `.xz` comparison against `xz -9e`.
 `make cmodel-func` also validates this compressed reference on the functional
 case set before benchmark results are emitted.
 
+Parameter sweeps can be run on the same five-file corpus:
+
+```sh
+make param-sweep
+```
+
+The default sweep stays in the hardware-friendly space:
+
+```text
+mode=FAST, mf=HC4
+dict=64/256/1024 KiB
+lc/lp/pb=(3/0/2), (4/0/0), (2/0/2)
+nice_len=16/32/64
+depth=4/8/16/32
+```
+
+Results are written to:
+
+```text
+build/cmodel/reports/param_sweep_detail.csv
+build/cmodel/reports/param_sweep_summary.csv
+build/cmodel/reports/param_sweep_top.md
+```
+
+`make param-sweep-upper` additionally includes BT4/NORMAL as a compression-ratio
+upper-bound reference; that setting is not the first RTL target.
+
 `bench-corpus` deterministically generates five benchmark binaries:
 
 - two software-program style files (`prog_a.bin`, `prog_b.bin`)
