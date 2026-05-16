@@ -89,6 +89,40 @@ Important: v0.1 uses LZMA2 uncompressed chunks, so ratio is expected to be
 larger than 1.0 except for unusual corner cases. This measures container/chunk
 overhead and model/RTL alignment, not real HC4/range-coder compression.
 
+## C Model Gate and Benchmark Corpus
+
+The next-stage gate runs functionality before any performance reporting:
+
+```sh
+make cmodel-func
+make bench-corpus
+make cmodel-bench
+```
+
+or as one command:
+
+```sh
+make cmodel-gate
+```
+
+`bench-corpus` deterministically generates five benchmark binaries:
+
+- two software-program style files (`prog_a.bin`, `prog_b.bin`)
+- three NPU intermediate-parameter style files (`npu_a.bin`, `npu_b.bin`, `npu_c.bin`)
+
+Benchmark reports are written to:
+
+```text
+build/cmodel/reports/cmodel_bench.csv
+build/cmodel/reports/cmodel_bench.md
+```
+
+The report compares the current C model output against `xz -9e --check=crc32`
+when an `xz` CLI is available. If `xz` is not installed, it falls back to Python
+`lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final. The
+current C model is still the RTL-equivalent uncompressed LZMA2 path; compressed
+range-coder/HC4 C model support is explicitly reported as pending.
+
 ## VCS and DC
 
 Commercial-tool targets are included for validation on another machine:
