@@ -160,7 +160,7 @@ def cmodel_encode_compressed(input_path: Path, output_path: Path, args: argparse
             )
         else:
             desc = (
-                "standalone RTL-friendly C LZMA2 HC4 greedy range "
+                "standalone RTL-friendly C LZMA2 HC4 rep/lazy-optimum range "
                 f"dict={args.dict_kib}KiB lc={args.lc} lp={args.lp} pb={args.pb} "
                 f"nice={args.nice_len} depth={args.depth} chunk={args.chunk_size}"
             )

@@ -30,6 +30,7 @@ enum {
     LZMA_FULL_DISTANCES = 1 << (LZMA_DIST_MODEL_END / 2),
     LZMA_ALIGN_BITS = 4,
     LZMA_ALIGN_SIZE = 1 << LZMA_ALIGN_BITS,
+    LZMA_REPS = 4,
     RC_BIT_MODEL_TOTAL_BITS = 11,
     RC_BIT_MODEL_TOTAL = 1 << RC_BIT_MODEL_TOTAL_BITS,
     RC_MOVE_BITS = 5,
@@ -50,6 +51,7 @@ typedef struct {
     int check_type;
     int force_uncompressed;
     int enable_matches;
+    int enable_optimum;
 } xz_cfg_t;
 
 typedef struct {
@@ -85,6 +87,7 @@ typedef struct {
     uint32_t reps[4];
     uint64_t literals;
     uint64_t matches;
+    uint64_t rep_matches;
     uint64_t match_bytes;
     uint64_t rc_bits;
     prob_t is_match[LZMA_STATES][LZMA_POS_STATES_MAX];
@@ -106,6 +109,19 @@ typedef struct {
     uint32_t dist;
 } match_t;
 
+typedef enum {
+    TOKEN_LITERAL,
+    TOKEN_MATCH,
+    TOKEN_REP,
+} token_kind_t;
+
+typedef struct {
+    token_kind_t kind;
+    uint32_t len;
+    uint32_t dist;
+    uint32_t rep;
+} token_t;
+
 typedef struct {
     uint32_t dict_size;
     uint32_t depth;
@@ -122,6 +138,7 @@ typedef struct {
     uint64_t uncompressed_chunks;
     uint64_t literals;
     uint64_t matches;
+    uint64_t rep_matches;
     uint64_t match_bytes;
     uint64_t rc_bits;
     uint64_t hc4_probes;
@@ -445,6 +462,16 @@ static void update_match(uint32_t *state)
     *state = *state < LZMA_LIT_STATES ? 7 : 10;
 }
 
+static void update_long_rep(uint32_t *state)
+{
+    *state = *state < LZMA_LIT_STATES ? 8 : 11;
+}
+
+static void update_short_rep(uint32_t *state)
+{
+    *state = *state < LZMA_LIT_STATES ? 9 : 11;
+}
+
 static uint32_t get_dist_state(uint32_t len)
 {
     return len < LZMA_DIST_STATES + LZMA_MATCH_LEN_MIN
@@ -601,6 +628,53 @@ static int lzma_match(lzma_enc_t *e, rc_t *rc, uint32_t pos, uint32_t len, uint3
     return 0;
 }
 
+static int lzma_rep_match(lzma_enc_t *e, rc_t *rc, uint32_t pos, uint32_t len, uint32_t rep)
+{
+    uint32_t pos_state = pos & e->pos_mask;
+
+    if (rc_bit(rc, &e->is_match[e->state][pos_state], 1) != 0 ||
+        rc_bit(rc, &e->is_rep[e->state], 1) != 0)
+        return -1;
+
+    if (rep == 0) {
+        if (rc_bit(rc, &e->is_rep0[e->state], 0) != 0 ||
+            rc_bit(rc, &e->is_rep0_long[e->state][pos_state], len != 1) != 0)
+            return -1;
+    } else {
+        uint32_t distance = e->reps[rep];
+        if (rc_bit(rc, &e->is_rep0[e->state], 1) != 0)
+            return -1;
+
+        if (rep == 1) {
+            if (rc_bit(rc, &e->is_rep1[e->state], 0) != 0)
+                return -1;
+        } else {
+            if (rc_bit(rc, &e->is_rep1[e->state], 1) != 0 ||
+                rc_bit(rc, &e->is_rep2[e->state], rep - 2U) != 0)
+                return -1;
+
+            if (rep == 3)
+                e->reps[3] = e->reps[2];
+            e->reps[2] = e->reps[1];
+        }
+
+        e->reps[1] = e->reps[0];
+        e->reps[0] = distance;
+    }
+
+    if (len == 1) {
+        update_short_rep(&e->state);
+    } else {
+        if (lzma_len(e, rc, &e->rep_len, pos_state, len) != 0)
+            return -1;
+        update_long_rep(&e->state);
+    }
+
+    ++e->rep_matches;
+    e->match_bytes += len;
+    return 0;
+}
+
 static uint32_t hc4_hash(const uint8_t *data, uint32_t remaining, uint32_t mask)
 {
     uint32_t h = 0;
@@ -674,6 +748,156 @@ static match_t hc4_find_and_insert(hc4_t *hc, const uint8_t *data, uint32_t len,
     return best;
 }
 
+static match_t hc4_peek(const hc4_t *hc, const uint8_t *data, uint32_t len, uint32_t pos)
+{
+    match_t best = {0, 0};
+    if (pos + 4U > len)
+        return best;
+
+    uint32_t h = hc4_hash(data + pos, len - pos, hc->hash_mask);
+    uint32_t prev = hc->head[h];
+    uint32_t max_len = len - pos;
+    if (max_len > LZMA_MATCH_LEN_MAX)
+        max_len = LZMA_MATCH_LEN_MAX;
+    if (max_len > hc->nice_len)
+        max_len = hc->nice_len;
+
+    for (uint32_t d = 0; prev != 0 && d < hc->depth; ++d) {
+        uint32_t cand = prev - 1U;
+        if (cand >= pos)
+            break;
+        uint32_t dist = pos - cand;
+        if (dist == 0 || dist > hc->dict_size)
+            break;
+
+        uint32_t n = 0;
+        while (n < max_len && data[cand + n] == data[pos + n])
+            ++n;
+        if (n >= 4 && n > best.len) {
+            best.len = n;
+            best.dist = dist;
+            if (n >= hc->nice_len)
+                break;
+        }
+        prev = hc->prev[cand % hc->dict_size];
+    }
+    return best;
+}
+
+static uint32_t rep_len_at(const lzma_enc_t *enc, const uint8_t *data, uint32_t len,
+                           uint32_t pos, uint32_t rep)
+{
+    uint32_t dist = enc->reps[rep] + 1U;
+    if (dist > pos)
+        return 0;
+
+    uint32_t max_len = len - pos;
+    if (max_len > LZMA_MATCH_LEN_MAX)
+        max_len = LZMA_MATCH_LEN_MAX;
+
+    uint32_t n = 0;
+    while (n < max_len && data[pos + n] == data[pos - dist + n])
+        ++n;
+    return n;
+}
+
+static uint32_t length_price_est(uint32_t len)
+{
+    if (len <= 9)
+        return 1U + LZMA_LEN_LOW_BITS;
+    if (len <= 17)
+        return 2U + LZMA_LEN_MID_BITS;
+    return 2U + LZMA_LEN_HIGH_BITS;
+}
+
+static uint32_t dist_price_est(uint32_t distance)
+{
+    uint32_t dist = distance - 1U;
+    uint32_t slot = get_dist_slot(dist);
+    uint32_t price = LZMA_DIST_SLOT_BITS;
+    if (slot >= LZMA_DIST_MODEL_START) {
+        uint32_t footer_bits = (slot >> 1) - 1U;
+        price += footer_bits;
+    }
+    return price;
+}
+
+static uint32_t match_price_est(uint32_t len, uint32_t distance)
+{
+    return 2U + length_price_est(len) + dist_price_est(distance);
+}
+
+static uint32_t rep_price_est(uint32_t len, uint32_t rep)
+{
+    uint32_t price = 2U;
+    if (rep == 0) {
+        price += 1U + 1U;
+    } else if (rep == 1) {
+        price += 2U;
+    } else {
+        price += 3U;
+    }
+    if (len > 1)
+        price += length_price_est(len);
+    return price;
+}
+
+static uint32_t token_score(uint32_t price, uint32_t len)
+{
+    return (price * 1024U) / (len == 0 ? 1U : len);
+}
+
+static token_t choose_token(const xz_cfg_t *cfg, const lzma_enc_t *enc, const hc4_t *hc,
+                            const uint8_t *data, uint32_t len, uint32_t pos,
+                            match_t normal)
+{
+    token_t best = { .kind = TOKEN_LITERAL, .len = 1, .dist = 0, .rep = 0 };
+    uint32_t best_score = token_score(9U, 1U);
+
+    if (!cfg->enable_matches)
+        return best;
+
+    for (uint32_t rep = 0; rep < LZMA_REPS; ++rep) {
+        uint32_t rlen = rep_len_at(enc, data, len, pos, rep);
+        if (rlen >= 2 || (rep == 0 && rlen == 1)) {
+            uint32_t price = rep_price_est(rlen, rep);
+            uint32_t score = token_score(price, rlen);
+            if (score < best_score) {
+                best.kind = TOKEN_REP;
+                best.len = rlen;
+                best.rep = rep;
+                best.dist = enc->reps[rep] + 1U;
+                best_score = score;
+            }
+        }
+    }
+
+    if (normal.len >= 4) {
+        uint32_t price = match_price_est(normal.len, normal.dist);
+        uint32_t score = token_score(price, normal.len);
+        if (score < best_score) {
+            best.kind = TOKEN_MATCH;
+            best.len = normal.len;
+            best.dist = normal.dist;
+            best.rep = 0;
+            best_score = score;
+        }
+    }
+
+    if (cfg->enable_optimum && best.kind == TOKEN_MATCH && best.len < cfg->nice_len &&
+        pos + 1U < len) {
+        match_t next = hc4_peek(hc, data, len, pos + 1U);
+        if (next.len >= best.len + 2U) {
+            best.kind = TOKEN_LITERAL;
+            best.len = 1;
+            best.dist = 0;
+            best.rep = 0;
+        }
+    }
+
+    return best;
+}
+
 static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *cfg,
                              vec_t *compressed, rtl_stats_t *stats)
 {
@@ -697,12 +921,19 @@ static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *
         else
             (void)hc4_insert(&hc, data, len, pos);
 
-        if (cfg->enable_matches && m.len >= 4) {
-            if (lzma_match(&enc, &rc, pos, m.len, m.dist) != 0)
+        token_t token = choose_token(cfg, &enc, &hc, data, len, pos, m);
+        if (token.kind == TOKEN_MATCH) {
+            if (lzma_match(&enc, &rc, pos, token.len, token.dist) != 0)
                 goto out_hc;
-            for (uint32_t i = 1; i < m.len && pos + i < len; ++i)
+            for (uint32_t i = 1; i < token.len && pos + i < len; ++i)
                 (void)hc4_insert(&hc, data, len, pos + i);
-            pos += m.len;
+            pos += token.len;
+        } else if (token.kind == TOKEN_REP) {
+            if (lzma_rep_match(&enc, &rc, pos, token.len, token.rep) != 0)
+                goto out_hc;
+            for (uint32_t i = 1; i < token.len && pos + i < len; ++i)
+                (void)hc4_insert(&hc, data, len, pos + i);
+            pos += token.len;
         } else {
             if (lzma_literal(&enc, &rc, data, pos) != 0)
                 goto out_hc;
@@ -715,6 +946,7 @@ static int lzma_encode_chunk(const uint8_t *data, uint32_t len, const xz_cfg_t *
 
     stats->literals += enc.literals;
     stats->matches += enc.matches;
+    stats->rep_matches += enc.rep_matches;
     stats->match_bytes += enc.match_bytes;
     stats->rc_bits += rc.bit_events;
     stats->hc4_probes += hc.probes;
@@ -1013,6 +1245,7 @@ static void usage(const char *argv0)
             "  --depth N           HC4 chain depth (default 16)\n"
             "  --chunk-size N      LZMA2 chunk size, <=65536 (default 65536)\n"
             "  --disable-matches   Emit literals only; keeps range path, disables match tokens\n"
+            "  --disable-optimum   Disable bounded lazy/price parser\n"
             "  --force-uncompressed  Disable range-coded chunk emission\n",
             argv0);
 }
@@ -1031,6 +1264,7 @@ int main(int argc, char **argv)
         .check_type = XZ_CHECK_CRC32,
         .force_uncompressed = 0,
         .enable_matches = 1,
+        .enable_optimum = 1,
     };
     const char *input_path = NULL;
     const char *output_path = NULL;
@@ -1099,6 +1333,8 @@ int main(int argc, char **argv)
             cfg.enable_matches = 1;
         } else if (strcmp(argv[i], "--disable-matches") == 0) {
             cfg.enable_matches = 0;
+        } else if (strcmp(argv[i], "--disable-optimum") == 0) {
+            cfg.enable_optimum = 0;
         } else if (input_path == NULL) {
             input_path = argv[i];
         } else if (output_path == NULL) {
@@ -1145,13 +1381,14 @@ int main(int argc, char **argv)
            "dict_kib=%u dict_prop=%u lc=%u lp=%u pb=%u nice_len=%u depth=%u "
            "chunk_size=%u check=%d backend=rtl_friendly_hc4_range "
            "compressed_chunks=%" PRIu64 " uncompressed_chunks=%" PRIu64 " "
-           "literals=%" PRIu64 " matches=%" PRIu64 " match_bytes=%" PRIu64 " "
+           "literals=%" PRIu64 " matches=%" PRIu64 " rep_matches=%" PRIu64
+           " match_bytes=%" PRIu64 " "
            "rc_bits=%" PRIu64 " hc4_probes=%" PRIu64 "\n",
            input_len, output.len, ratio, mbps,
            cfg.dict_kib, cfg.dict_prop, cfg.lc, cfg.lp, cfg.pb, cfg.nice_len,
            cfg.depth, cfg.chunk_size, cfg.check_type, stats.compressed_chunks,
-           stats.uncompressed_chunks, stats.literals, stats.matches, stats.match_bytes,
-           stats.rc_bits, stats.hc4_probes);
+           stats.uncompressed_chunks, stats.literals, stats.matches, stats.rep_matches,
+           stats.match_bytes, stats.rc_bits, stats.hc4_probes);
 
     free(output.data);
     free(input);

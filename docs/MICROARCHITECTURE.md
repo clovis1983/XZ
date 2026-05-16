@@ -67,15 +67,16 @@ core. It is self-contained and does not call liblzma. The model emits standard
   bittree, reverse-bittree, and flush operations;
 - an HC4-style hash-chain match finder with runtime `dict_kib`,
   `nice_len`, and `depth` bounds;
-- a greedy parser that emits literals or normal matches;
+- a bounded lazy/price parser that emits literals, normal matches, and
+  repeated matches;
 - LZMA2 compressed chunk headers with property reset, plus uncompressed
   fallback when a chunk is incompressible;
 - the same XZ Stream/Header/Block/Index/Footer and CRC32/CRC64 code path used
   by the uncompressed C model.
 
-The first RTL coding target should map this model block-for-block. Rep-match
-coding and optimum parsing remain deliberate compression-ratio improvements
-after this baseline is stable.
+The first RTL coding target should map this model block-for-block. A full
+liblzma-style optimum parser remains a compression-ratio improvement after this
+baseline is stable.
 
 ## Characterization Defaults
 
