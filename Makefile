@@ -2,6 +2,8 @@ RTL_SRCS := \
 	rtl/xz_codec_pkg.sv \
 	rtl/xz_crc32.sv \
 	rtl/xz_crc64.sv \
+	rtl/xz_codec_mem_top.sv \
+	rtl/xz_lzma2_compressed_core.sv \
 	rtl/xz_lzma2_uncompressed_encoder.sv \
 	rtl/xz_lzma2_uncompressed_decoder.sv \
 	rtl/xz_axi_lite_regs.sv \
@@ -19,7 +21,7 @@ CMODEL_LZMA ?= $(CMODEL_BUILD_DIR)/xz_liblzma_model
 CMODEL_RTL ?= $(CMODEL_BUILD_DIR)/xz_rtl_model
 CMODEL_COMPRESSED_BACKEND ?= python
 CMODEL_CHECK ?= 1
-CMODEL_DICT_KIB ?= 64
+CMODEL_DICT_KIB ?= 4
 CMODEL_LC ?= 3
 CMODEL_LP ?= 0
 CMODEL_PB ?= 2

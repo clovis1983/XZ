@@ -30,6 +30,8 @@ the integration contract before the compression engine is inserted.
 
 - `rtl/xz_codec_top.sv`: top-level IP wrapper.
 - `rtl/xz_axi_lite_regs.sv`: control/status registers.
+- `rtl/xz_codec_mem_top.sv`: centralized SRAM-like memory wrapper for compressed core.
+- `rtl/xz_lzma2_compressed_core.sv`: compressed-core shell, default 4 KiB macro with 16 KiB datapath capacity.
 - `rtl/xz_lzma2_uncompressed_encoder.sv`: `.xz` + LZMA2 uncompressed encoder.
 - `rtl/xz_lzma2_uncompressed_decoder.sv`: matching decoder subset.
 - `rtl/xz_codec_pkg.sv`: constants, CRC helpers, VLI helpers.

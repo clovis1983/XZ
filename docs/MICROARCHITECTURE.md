@@ -94,9 +94,10 @@ Use these initial sweep points:
 | `search_depth` | 4, 8, 16, 32 |
 | `lc/lp/pb` | default 3/0/2 plus 4/0/0 for source text |
 
-The RTL datapath should be 64 KiB capable even when the selected macro is
-4 KiB or 16 KiB: use a 16-bit dictionary address and internal `dist_minus1`,
-then mask addresses with the active dictionary size. Area-sensitive memories are the
+The compressed-core RTL baseline uses a 4 KiB memory macro while keeping the
+datapath 16 KiB capable: use a 14-bit dictionary address and internal
+`dist_minus1`, then mask addresses with the active dictionary size.
+Area-sensitive memories are the
 dictionary RAM, HC4 `prev` RAM, and HC4 `head` RAM; probability RAM is driven by
 `lc/lp` and is largely independent of dictionary size. Keep these memories below
 a single memory top so MBIST insertion and hard macro replacement do not require

@@ -19,18 +19,18 @@ All registers are 32-bit little-endian. Address bits `[1:0]` are ignored.
 
 - `mode_decode = 0` for encode mode.
 - `check_type = 1` for CRC32.
-- `dict_size_id = 0` for 64 KiB in v0.1 register reset.
+- `dict_size_id = 0` for 4 KiB in the compressed-core RTL baseline.
 - `lc=3`, `lp=0`, `pb=2`.
-- `nice_len=32`, `search_depth=16`, `block_size_kib=64`.
+- `nice_len=64`, `search_depth=16`, `block_size_kib=64`.
 
 ## Dictionary IDs
 
 | ID | Dictionary property | Dictionary size |
 | --- | --- | --- |
-| `0` | `8` | 64 KiB |
-| `1` | `12` | 256 KiB |
-| `2` | `16` | 1 MiB |
-| `3` | `4` | 16 KiB |
+| `0` | `0` | 4 KiB |
+| `1` | `4` | 16 KiB |
+| `2` | `4` | 16 KiB alias |
+| `3` | `4` | 16 KiB alias |
 
 ## Error Codes
 

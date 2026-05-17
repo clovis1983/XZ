@@ -115,7 +115,7 @@ module xz_axi_lite_regs (
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       cfg0_q <= 32'h0002_0301; // check=CRC32, dict_id=0, lc=3, lp=0, pb=2
-      cfg1_q <= 32'h0040_1020; // block=64 KiB, depth=16, nice_len=32
+      cfg1_q <= 32'h0040_1040; // block=64 KiB, depth=16, nice_len=64
       mode_decode_q <= 1'b0;
       irq_enable_q <= 1'b0;
       s_axil_bvalid <= 1'b0;

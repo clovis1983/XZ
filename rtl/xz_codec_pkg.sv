@@ -97,11 +97,29 @@ package xz_codec_pkg;
   function automatic logic [5:0] xz_dict_prop_from_id(input logic [1:0] dict_size_id);
     begin
       case (dict_size_id)
-        2'd0: xz_dict_prop_from_id = 6'd8;   // 64 KiB
-        2'd1: xz_dict_prop_from_id = 6'd12;  // 256 KiB
-        2'd2: xz_dict_prop_from_id = 6'd16;  // 1 MiB
-        2'd3: xz_dict_prop_from_id = 6'd4;   // 16 KiB
-        default: xz_dict_prop_from_id = 6'd12;
+        2'd0: xz_dict_prop_from_id = 6'd0;   // 4 KiB default macro
+        2'd1: xz_dict_prop_from_id = 6'd4;   // 16 KiB capable datapath
+        default: xz_dict_prop_from_id = 6'd4;
+      endcase
+    end
+  endfunction
+
+  function automatic int unsigned xz_dict_bytes_from_id(input logic [1:0] dict_size_id);
+    begin
+      case (dict_size_id)
+        2'd0: xz_dict_bytes_from_id = 4096;
+        2'd1: xz_dict_bytes_from_id = 16384;
+        default: xz_dict_bytes_from_id = 16384;
+      endcase
+    end
+  endfunction
+
+  function automatic logic [15:0] xz_dict_mask_from_id(input logic [1:0] dict_size_id);
+    begin
+      case (dict_size_id)
+        2'd0: xz_dict_mask_from_id = 16'h0FFF;
+        2'd1: xz_dict_mask_from_id = 16'h3FFF;
+        default: xz_dict_mask_from_id = 16'h3FFF;
       endcase
     end
   endfunction
