@@ -1019,7 +1019,10 @@ module xz_lzma2_compressed_core #(
         ST_COPY_READ: begin
           if (match_dist_q == 32'd0 ||
               match_dist_q > {16'd0, active_dict_bytes_w[15:0]} ||
-              match_dist_q > bytes_out_q[31:0]) begin
+              match_dist_q > bytes_out_q[31:0] ||
+              {43'd0, lzma2_unpacked_len_q} <= bytes_out_q ||
+              {55'd0, copy_remaining_q} >
+                  ({43'd0, lzma2_unpacked_len_q} - bytes_out_q)) begin
             state_q <= ST_ERROR;
             error_code_q <= XZ_ERR_BAD_PADDING;
           end else begin

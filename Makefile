@@ -81,6 +81,7 @@ rtl-compressed-xz-top: compressed-directed
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_padding.xz +EXPECTED_ERROR=07
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_truncated.xz +EXPECTED_ERROR=08
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_prop.xz +EXPECTED_ERROR=09
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_match_overrun.xz +EXPECTED_ERROR=07
 
 corpus-sim: bench-corpus
 	python3 scripts/run_corpus_sim.py --manifest $(BENCH_MANIFEST) --smallest-only

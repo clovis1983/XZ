@@ -76,9 +76,13 @@ def main() -> None:
     #   header: reset props, unpacked_len=4, compressed_len=8, prop=0x5d
     #   payload: range-coded literals A/B followed by a normal match dist=2 len=2
     abab = bytes.fromhex("e0 00 03 00 07 5d 00 20 90 9c 04 00 00 00")
+    abab_overrun = bytes.fromhex("e0 00 02 00 07 5d 00 20 90 9c 04 00 00 00")
     (out_dir / "raw_lzma2_abab.bin").write_bytes(abab)
     (out_dir / "raw_lzma2_abab.expected.bin").write_bytes(b"ABAB")
     (out_dir / "xz_lzma2_abab.xz").write_bytes(xz_stream(abab, b"ABAB"))
+    (out_dir / "xz_lzma2_match_overrun.xz").write_bytes(
+        xz_stream(abab_overrun, b"ABA")
+    )
 
     # RTL-friendly C-model style chunk for a longer literal/match mix:
     #   decoded: ABABABABABABABAB
