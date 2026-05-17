@@ -104,6 +104,7 @@ def main() -> None:
     # with XZ_ERR_CONFIG after header parsing and before payload consumption.
     bad_prop = bytes.fromhex("e0 00 00 00 04 ff 00 00 00 00 00")
     (out_dir / "raw_lzma2_bad_prop.bin").write_bytes(bad_prop)
+    (out_dir / "xz_lzma2_bad_prop.xz").write_bytes(xz_stream(bad_prop, b""))
 
     print(f"compressed directed fixtures: {out_dir}")
 
