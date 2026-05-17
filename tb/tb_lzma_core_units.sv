@@ -40,6 +40,21 @@ module tb_lzma_core_units;
   logic [13:0] prob_addr;
   logic [10:0] prob_wdata;
   logic [10:0] prob_rdata;
+  logic prob2_req;
+  logic prob2_we;
+  logic [13:0] prob2_addr;
+  logic [10:0] prob2_wdata;
+  logic [10:0] prob2_rdata;
+  logic prob_init_start;
+  logic prob_init_busy;
+  logic prob_init_done;
+  logic prob_update_valid;
+  logic prob_update_ready;
+  logic [13:0] prob_update_addr;
+  logic prob_update_bit;
+  logic prob_update_done;
+  logic [10:0] prob_update_old;
+  logic [10:0] prob_update_new;
 
   xz_range_bit_encode_step u_enc_step (
       .low_i(enc_low),
@@ -90,6 +105,58 @@ module tb_lzma_core_units;
       .prob_rdata(prob_rdata)
   );
 
+  xz_codec_mem_top #(
+      .DICT_CAPACITY_BYTES(16384),
+      .DICT_MACRO_BYTES(4096),
+      .PROB_ENTRIES(8),
+      .PROB_ADDR_WIDTH(14)
+  ) u_prob_mem (
+      .clk(clk),
+      .dict_req(1'b0),
+      .dict_we(1'b0),
+      .dict_addr('0),
+      .dict_wdata('0),
+      .dict_rdata(),
+      .hc4_prev_req(1'b0),
+      .hc4_prev_we(1'b0),
+      .hc4_prev_addr('0),
+      .hc4_prev_wdata('0),
+      .hc4_prev_rdata(),
+      .hc4_head_req(1'b0),
+      .hc4_head_we(1'b0),
+      .hc4_head_addr('0),
+      .hc4_head_wdata('0),
+      .hc4_head_rdata(),
+      .prob_req(prob2_req),
+      .prob_we(prob2_we),
+      .prob_addr(prob2_addr),
+      .prob_wdata(prob2_wdata),
+      .prob_rdata(prob2_rdata)
+  );
+
+  xz_prob_ram_ctrl #(
+      .PROB_ENTRIES(8),
+      .PROB_ADDR_WIDTH(14)
+  ) u_prob_ctrl (
+      .clk(clk),
+      .rst_n(1'b1),
+      .init_start(prob_init_start),
+      .init_busy(prob_init_busy),
+      .init_done(prob_init_done),
+      .update_valid(prob_update_valid),
+      .update_ready(prob_update_ready),
+      .update_addr(prob_update_addr),
+      .update_bit(prob_update_bit),
+      .update_done(prob_update_done),
+      .update_prob_old(prob_update_old),
+      .update_prob_new(prob_update_new),
+      .prob_req(prob2_req),
+      .prob_we(prob2_we),
+      .prob_addr(prob2_addr),
+      .prob_wdata(prob2_wdata),
+      .prob_rdata(prob2_rdata)
+  );
+
   initial begin
     clk = 1'b0;
     forever #5 clk = ~clk;
@@ -121,6 +188,10 @@ module tb_lzma_core_units;
     prob_we = 1'b0;
     prob_addr = '0;
     prob_wdata = '0;
+    prob_init_start = 1'b0;
+    prob_update_valid = 1'b0;
+    prob_update_addr = '0;
+    prob_update_bit = 1'b0;
 
     enc_low = 64'd0;
     enc_range = 32'hFFFF_FFFF;
@@ -185,6 +256,34 @@ module tb_lzma_core_units;
     check(prev_rdata == 16'hCAFE, "prev memory readback");
     check(head_rdata == 16'h1234, "head memory readback");
     check(prob_rdata == 11'd777, "prob memory readback");
+
+    @(negedge clk);
+    prob_init_start = 1'b1;
+    @(negedge clk);
+    prob_init_start = 1'b0;
+    wait (prob_init_done);
+    @(negedge clk);
+    check(!prob_init_busy, "prob init exits busy");
+
+    prob_update_addr = 14'd3;
+    prob_update_bit = 1'b0;
+    prob_update_valid = 1'b1;
+    @(negedge clk);
+    prob_update_valid = 1'b0;
+    wait (prob_update_done);
+    @(negedge clk);
+    check(prob_update_old == 11'd1024, "prob ctrl old after init");
+    check(prob_update_new == 11'd1056, "prob ctrl zero update");
+
+    prob_update_addr = 14'd3;
+    prob_update_bit = 1'b1;
+    prob_update_valid = 1'b1;
+    @(negedge clk);
+    prob_update_valid = 1'b0;
+    wait (prob_update_done);
+    @(negedge clk);
+    check(prob_update_old == 11'd1056, "prob ctrl old after first update");
+    check(prob_update_new == 11'd1023, "prob ctrl one update");
 
     $display("LZMA_CORE_UNITS_PASS");
     $finish;

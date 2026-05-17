@@ -56,13 +56,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=Path("build/bench_corpus/manifest.json"))
     parser.add_argument("--out-dir", type=Path, default=Path("build/rtl_corpus"))
+    parser.add_argument("--smallest-only", action="store_true")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(args.manifest.read_text())
+    files = manifest["files"]
+    if args.smallest_only:
+        files = [min(files, key=lambda item: Path(item["path"]).stat().st_size)]
     enc_sim, dec_sim = build_sims(args.out_dir)
 
-    for item in manifest["files"]:
+    for item in files:
         name = item["name"]
         input_path = Path(item["path"])
         xz_path = args.out_dir / f"{name}.rtl.xz"

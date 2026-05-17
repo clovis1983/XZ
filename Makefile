@@ -4,6 +4,7 @@ RTL_SRCS := \
 	rtl/xz_crc64.sv \
 	rtl/xz_codec_mem_top.sv \
 	rtl/xz_range_bit.sv \
+	rtl/xz_prob_ram_ctrl.sv \
 	rtl/xz_lzma2_compressed_core.sv \
 	rtl/xz_lzma2_uncompressed_encoder.sv \
 	rtl/xz_lzma2_uncompressed_decoder.sv \
@@ -53,16 +54,19 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke rtl-core-units corpus-sim cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke rtl-core-units corpus-sim corpus-sim-all cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
 
 rtl-core-units:
-	iverilog -g2012 -s tb_lzma_core_units -Wall -o tb/lzma_core_units.vvp rtl/xz_codec_mem_top.sv rtl/xz_range_bit.sv tb/tb_lzma_core_units.sv
+	iverilog -g2012 -s tb_lzma_core_units -Wall -o tb/lzma_core_units.vvp rtl/xz_codec_mem_top.sv rtl/xz_range_bit.sv rtl/xz_prob_ram_ctrl.sv tb/tb_lzma_core_units.sv
 	vvp tb/lzma_core_units.vvp
 
 corpus-sim: bench-corpus
+	python3 scripts/run_corpus_sim.py --manifest $(BENCH_MANIFEST) --smallest-only
+
+corpus-sim-all: bench-corpus
 	python3 scripts/run_corpus_sim.py --manifest $(BENCH_MANIFEST)
 
 cmodel: $(CMODEL)

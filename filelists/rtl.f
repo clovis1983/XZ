@@ -3,6 +3,7 @@ rtl/xz_crc32.sv
 rtl/xz_crc64.sv
 rtl/xz_codec_mem_top.sv
 rtl/xz_range_bit.sv
+rtl/xz_prob_ram_ctrl.sv
 rtl/xz_lzma2_compressed_core.sv
 rtl/xz_lzma2_uncompressed_encoder.sv
 rtl/xz_lzma2_uncompressed_decoder.sv
