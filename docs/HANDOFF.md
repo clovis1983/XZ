@@ -7,14 +7,13 @@ Repository: `https://github.com/clovis1983/XZ`
 The project is in compressed decoder top-level bring-up. The first complete
 `.xz` compressed directed path is in place; broader compressed cases remain.
 
-Latest pushed commit:
+Latest functional commit before this handoff update:
 
 ```text
-f3dcd15 Integrate top-level compressed decode
+2685f2f Guard compressed copy length
 ```
 
-There are local, uncommitted changes after that commit. See "Local Uncommitted
-Changes" below before continuing.
+The branch is clean after the handoff documentation commit and push.
 
 Completed:
 
@@ -41,9 +40,15 @@ Completed:
   uncompressed decode behavior unchanged.
 - Top-level compressed `.xz` file-driven directed target:
   - valid `ABAB` compressed stream
+  - RTL-friendly C-model style `ABAB` x16 stream with a longer distance-2 match
+    under output backpressure
   - bad CRC
   - bad block padding
   - truncated stream
+  - bad LZMA2 property propagated from raw core as `XZ_ERR_CONFIG`
+  - match/copy overrun rejected as `XZ_ERR_BAD_PADDING`
+- Compressed raw core copy path now checks match/rep copy length against the
+  remaining LZMA2 unpacked length before emitting copied bytes.
 
 Not completed yet:
 
@@ -201,13 +206,20 @@ The latest local validation actually run in this window:
 
 ```text
 python3 -c/lzma check on generated xz_lzma2_abab.xz PASS, output ABAB
+python3 lzma check on generated xz_lzma2_abab16_rtl.xz PASS, output ABAB x8
 make rtl-compressed-xz-top PASS
-make rtl-compressed-top PASS
 make rtl-compressed-core PASS
 make rtl-core-units PASS
 make smoke PASS
-make corpus-sim PASS, runs prog_b only
 git diff --check PASS
+```
+
+Additional exploratory result:
+
+```text
+C-model generated rep-heavy samples with rep_matches > 0 now stop cleanly with
+XZ_ERR_BAD_PADDING instead of overrunning output, but they still do not decode
+successfully. Rep path functional bring-up remains the next decoder focus.
 ```
 
 ## Current Simulation Boundary
@@ -227,36 +239,26 @@ uncompressed `.xz` decoder path.
 
 ## Local Uncommitted Changes
 
-Current branch is `main`, with `origin/main` at `f3dcd15`. The following files
-are locally modified or added and have not been committed yet:
+Current branch is `main`. After committing this handoff update and pushing,
+there should be no local uncommitted changes.
 
 ```text
-M  Makefile
-M  docs/HANDOFF.md
-M  rtl/xz_codec_top.sv
-M  scripts/gen_compressed_directed.py
-M  scripts/run_smoke.py
-M  tb/tb_xz_top_compressed_file.sv
-?? docs/designspec.md
-?? rtl/xz_lzma2_compressed_decoder.sv
+clean
 ```
 
-Meaning of those changes:
+Recent commits in this window:
 
-- `rtl/xz_lzma2_compressed_decoder.sv` is the new `.xz` container wrapper around
-  `xz_lzma2_compressed_core`.
-- `xz_codec_top` now instantiates the compressed `.xz` decoder wrapper for
-  `mode_decode && cfg0[19]`.
-- `Makefile` includes `rtl/xz_lzma2_compressed_decoder.sv` in `RTL_SRCS` and
-  adds/aliases the compressed `.xz` top-level target.
-- `scripts/gen_compressed_directed.py` now emits valid `ABAB` compressed `.xz`
-  plus bad CRC, bad padding, and truncated `.xz` fixtures.
-- `tb/tb_xz_top_compressed_file.sv` can drive full `.xz` fixture files and
-  checks success output or expected error code.
-- `scripts/run_smoke.py` includes the new compressed decoder wrapper in the
-  top-level compile source list.
-- `docs/designspec.md` is the newly added design/specification document for
-  future coding context.
+- `2c78bc9 Expand compressed XZ directed coverage`
+  - Adds the 16-byte RTL-friendly `ABAB` compressed `.xz` fixture.
+  - Adds optional output backpressure and counter checks to the top-level
+    compressed file testbench.
+- `8d547e2 Add compressed bad property XZ case`
+  - Wraps the invalid LZMA2 property raw case in a top-level `.xz` container and
+    verifies `XZ_ERR_CONFIG` propagation.
+- `2685f2f Guard compressed copy length`
+  - Rejects match/rep copy lengths that would exceed the current LZMA2 chunk's
+    remaining unpacked length.
+  - Adds `xz_lzma2_match_overrun.xz` as a top-level directed error case.
 
 ## Recommended Next Steps
 
@@ -265,11 +267,15 @@ Meaning of those changes:
    - generated samples from the RTL C model
    - larger payloads that exercise backpressure and counters
 2. Add remaining compressed decoder stress cases:
-   - rep1/rep2/rep3 rotation
+   - rep1/rep2/rep3 rotation and rep length correctness
    - dictionary wrap
    - large direct distances that remain valid
    - multi-chunk property reset/state retention
-3. Only after decoder works, start encoder path:
+3. Debug rep-heavy RTL C-model samples:
+   - current samples with `rep_matches > 0` fail with `XZ_ERR_BAD_PADDING`
+   - likely focus areas are rep selection, rep length decode, and copy distance
+     rotation against the C model
+4. Only after decoder works, start encoder path:
    - range encoder byte output FSM
    - literal encode
    - HC4 match finder
