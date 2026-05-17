@@ -260,7 +260,7 @@ choices:
 make pre-rtl-dict-report
 ```
 
-This fixed gate uses the RTL-friendly C model with `dict=16/64KiB`,
+This fixed gate uses the RTL-friendly C model with `dict=4/16/64KiB`,
 `lc/lp/pb=3/0/2`, `nice_len=64`, and `depth=16`, and writes:
 
 ```text

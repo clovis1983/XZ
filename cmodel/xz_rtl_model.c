@@ -284,6 +284,8 @@ static int check_size(int check_type)
 static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 {
     switch (dict_kib) {
+    case 4:
+        return 0;
     case 16:
         return 4;
     case 64:
@@ -300,6 +302,8 @@ static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 static uint32_t dict_kib_from_prop(uint8_t dict_prop)
 {
     switch (dict_prop) {
+    case 0:
+        return 4;
     case 4:
         return 16;
     case 8:
@@ -1981,7 +1985,7 @@ static void usage(const char *argv0)
             "options:\n"
             "  --mode encode|decode Encode to .xz or decode .xz (default encode)\n"
             "  --check 0|1|4       XZ check: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary KiB: 16, 64, 256, or 1024 (default 64)\n"
+            "  --dict-kib N        Dictionary KiB: 4, 16, 64, 256, or 1024 (default 64)\n"
             "  --dict-prop N       Raw LZMA2 dictionary property\n"
             "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"

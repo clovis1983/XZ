@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare 16 KiB and 64 KiB RTL C model dictionary choices before RTL coding."""
+"""Compare area-sensitive RTL C model dictionary choices before RTL coding."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ def write_markdown(rows: list[dict[str, str]], path: Path, args: argparse.Namesp
     lines = [
         "# Pre-RTL Dictionary Report",
         "",
-        "- compared_dicts: `16KiB, 64KiB`",
+        f"- compared_dicts: `{','.join(str(x) + 'KiB' for x in args.dicts)}`",
         f"- fixed_params: `lc={args.lc} lp={args.lp} pb={args.pb} "
         f"nice_len={args.nice_len} depth={args.depth} chunk={args.chunk_size}`",
         "- rtl_address_assumption: `64KiB-capable datapath, 16-bit distance-minus-one/address path`",
@@ -144,7 +144,7 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, default=Path("build/bench_corpus/manifest.json"))
     parser.add_argument("--rtl-cmodel", type=Path, default=Path("build/cmodel/xz_rtl_model"))
     parser.add_argument("--out-dir", type=Path, default=Path("build/cmodel/reports"))
-    parser.add_argument("--dict-kib", default="16,64")
+    parser.add_argument("--dict-kib", default="4,16,64")
     parser.add_argument("--lc", type=int, default=3)
     parser.add_argument("--lp", type=int, default=0)
     parser.add_argument("--pb", type=int, default=2)
@@ -152,12 +152,12 @@ def main() -> None:
     parser.add_argument("--depth", type=int, default=16)
     parser.add_argument("--chunk-size", type=int, default=65536)
     args = parser.parse_args()
+    args.dicts = [int(x.strip(), 0) for x in args.dict_kib.split(",") if x.strip()]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     encoded_dir = args.out_dir / "pre_rtl_dict_encoded"
     encoded_dir.mkdir(exist_ok=True)
     manifest = json.loads(args.manifest.read_text())
-    dicts = [int(x.strip(), 0) for x in args.dict_kib.split(",") if x.strip()]
 
     rows: list[dict[str, str]] = []
     baseline_sizes: dict[str, int] = {}
@@ -168,7 +168,7 @@ def main() -> None:
         _tool, _elapsed = xz_baseline(input_path, xz_path)
         baseline_sizes[name] = xz_path.stat().st_size
 
-    for dict_kib in dicts:
+    for dict_kib in args.dicts:
         mem = memory_bits(dict_kib, args.lc, args.lp)
         total_memory_bits = mem["dict_bits"] + mem["hc4_prev_bits"] + mem["hc4_head_bits"] + mem["prob_bits"]
         for item in manifest["files"]:
