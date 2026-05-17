@@ -174,6 +174,8 @@ Responsibilities:
 Current boundaries:
 
 - Directed `.xz` coverage exists for a tiny `ABAB` compressed stream.
+- A 16-byte RTL-friendly C-model style `ABAB` stream covers a longer
+  distance-2 match, output backpressure, and selected counter checks.
 - Error coverage exists for bad CRC, bad block padding, and truncated stream.
 - Broad multi-chunk and large-dictionary compressed streams are not complete.
 

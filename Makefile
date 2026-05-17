@@ -76,6 +76,7 @@ rtl-compressed-top: rtl-compressed-xz-top
 rtl-compressed-xz-top: compressed-directed
 	iverilog -g2012 -s tb_xz_top_compressed_file -Wall -o tb/xz_top_compressed_file.vvp $(RTL_SRCS) tb/tb_xz_top_compressed_file.sv
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_abab.xz +EXPECTED=build/compressed_directed/raw_lzma2_abab.expected.bin
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_abab16_rtl.xz +EXPECTED=build/compressed_directed/raw_lzma2_abab16_rtl.expected.bin +BACKPRESSURE=1
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_crc.xz +EXPECTED_ERROR=06
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_padding.xz +EXPECTED_ERROR=07
 	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_truncated.xz +EXPECTED_ERROR=08

@@ -44,6 +44,8 @@ module tb_xz_top_compressed_file;
   int input_count;
   int expected_count;
   int captured_count;
+  int backpressure_enable;
+  int ready_cycle;
   logic [7:0] input_bytes [0:511];
   logic [7:0] expected_bytes [0:255];
   logic [7:0] captured_bytes [0:255];
@@ -127,6 +129,18 @@ module tb_xz_top_compressed_file;
     end
   end
 
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      ready_cycle <= 0;
+      m_axis_tready <= 1'b1;
+    end else if (backpressure_enable != 0) begin
+      ready_cycle <= ready_cycle + 1;
+      m_axis_tready <= (ready_cycle[2:0] != 3'd3) && (ready_cycle[2:0] != 3'd4);
+    end else begin
+      m_axis_tready <= 1'b1;
+    end
+  end
+
   initial begin
     if (!$value$plusargs("INPUT=%s", input_path)) begin
       $display("missing +INPUT");
@@ -136,6 +150,8 @@ module tb_xz_top_compressed_file;
       expected_path = "";
     if (!$value$plusargs("EXPECTED_ERROR=%s", expected_error_arg))
       expected_error_arg = "00";
+    if (!$value$plusargs("BACKPRESSURE=%d", backpressure_enable))
+      backpressure_enable = 0;
     if (expected_error_arg == "09")
       expected_error = XZ_ERR_CONFIG;
     else if (expected_error_arg == "06")
@@ -161,9 +177,9 @@ module tb_xz_top_compressed_file;
     s_axis_tvalid = 1'b0;
     s_axis_tlast = 1'b0;
     s_axis_tuser = 8'h00;
-    m_axis_tready = 1'b1;
     input_count = 0;
     expected_count = 0;
+    ready_cycle = 0;
     timeout = 0;
 
     if (expected_path != "") begin
@@ -219,7 +235,9 @@ module tb_xz_top_compressed_file;
     check(dut.core_done, "top compressed decode completes");
     check(dut.core_error == expected_error, "top compressed decode error code");
     if (expected_error == XZ_ERR_NONE) begin
+      check(dut.core_bytes_in == input_count, "top compressed bytes_in");
       check(dut.core_bytes_out == expected_count, "top compressed bytes_out");
+      check(dut.core_cycles > 0, "top compressed active cycles");
       check(captured_count == expected_count, "top compressed captured count");
       for (int i = 0; i < expected_count; i++)
         check(captured_bytes[i] == expected_bytes[i], "top compressed output byte");

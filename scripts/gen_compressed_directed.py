@@ -79,6 +79,17 @@ def main() -> None:
     (out_dir / "raw_lzma2_abab.bin").write_bytes(abab)
     (out_dir / "raw_lzma2_abab.expected.bin").write_bytes(b"ABAB")
     (out_dir / "xz_lzma2_abab.xz").write_bytes(xz_stream(abab, b"ABAB"))
+
+    # RTL-friendly C-model style chunk for a longer literal/match mix:
+    #   decoded: ABABABABABABABAB
+    #   symbols: A, B, then a length-14 match at distance 2
+    abab16 = bytes.fromhex("e0 00 0f 00 07 5d 00 20 90 a6 02 00 00 00")
+    (out_dir / "raw_lzma2_abab16_rtl.bin").write_bytes(abab16)
+    (out_dir / "raw_lzma2_abab16_rtl.expected.bin").write_bytes(b"ABABABABABABABAB")
+    (out_dir / "xz_lzma2_abab16_rtl.xz").write_bytes(
+        xz_stream(abab16, b"ABABABABABABABAB")
+    )
+
     (out_dir / "xz_lzma2_bad_crc.xz").write_bytes(
         xz_stream(abab, b"ABAB", corrupt_check=True)
     )
