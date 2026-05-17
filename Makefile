@@ -54,7 +54,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke rtl-core-units rtl-compressed-core corpus-sim corpus-sim-all cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke rtl-core-units rtl-compressed-core rtl-compressed-top compressed-directed corpus-sim corpus-sim-all cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -66,6 +66,14 @@ rtl-core-units:
 rtl-compressed-core:
 	iverilog -g2012 -s tb_lzma_compressed_core -Wall -o tb/lzma_compressed_core.vvp rtl/xz_codec_pkg.sv rtl/xz_codec_mem_top.sv rtl/xz_range_bit.sv rtl/xz_prob_ram_ctrl.sv rtl/xz_lzma2_compressed_core.sv tb/tb_lzma_compressed_core.sv
 	vvp tb/lzma_compressed_core.vvp
+
+compressed-directed:
+	python3 scripts/gen_compressed_directed.py
+
+rtl-compressed-top: compressed-directed
+	iverilog -g2012 -s tb_xz_top_compressed_file -Wall -o tb/xz_top_compressed_file.vvp $(RTL_SRCS) tb/tb_xz_top_compressed_file.sv
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/raw_lzma2_abab.bin +EXPECTED=build/compressed_directed/raw_lzma2_abab.expected.bin
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/raw_lzma2_bad_prop.bin +EXPECTED_ERROR=09
 
 corpus-sim: bench-corpus
 	python3 scripts/run_corpus_sim.py --manifest $(BENCH_MANIFEST) --smallest-only

@@ -49,6 +49,7 @@ module xz_codec_top #(
   logic [2:0] cfg_lc;
   logic [2:0] cfg_lp;
   logic [2:0] cfg_pb;
+  logic cfg_compressed_lzma2;
   logic [7:0] cfg_nice_len;
   logic [7:0] cfg_search_depth;
   logic [15:0] cfg_block_size_kib;
@@ -78,6 +79,19 @@ module xz_codec_top #(
   logic [63:0] dec_bytes_out;
   logic [63:0] dec_cycles;
 
+  logic comp_s_ready;
+  logic [7:0] comp_m_data;
+  logic comp_m_valid;
+  logic comp_m_last;
+  logic comp_busy;
+  logic comp_done;
+  logic [7:0] comp_error;
+  logic [63:0] comp_bytes_in;
+  logic [63:0] comp_bytes_out;
+  logic [63:0] comp_cycles;
+
+  logic use_compressed_decode_w;
+
   logic core_busy;
   logic core_done;
   logic [7:0] core_error;
@@ -87,18 +101,19 @@ module xz_codec_top #(
 
   assign core_rst_n = rst_n && !soft_reset_pulse;
   assign cfg_dict_prop = xz_dict_prop_from_id(cfg_dict_size_id);
+  assign use_compressed_decode_w = mode_decode && cfg_compressed_lzma2;
 
-  assign core_busy = mode_decode ? dec_busy : enc_busy;
-  assign core_done = mode_decode ? dec_done : enc_done;
-  assign core_error = mode_decode ? dec_error : enc_error;
-  assign core_bytes_in = mode_decode ? dec_bytes_in : enc_bytes_in;
-  assign core_bytes_out = mode_decode ? dec_bytes_out : enc_bytes_out;
-  assign core_cycles = mode_decode ? dec_cycles : enc_cycles;
+  assign core_busy = mode_decode ? (cfg_compressed_lzma2 ? comp_busy : dec_busy) : enc_busy;
+  assign core_done = mode_decode ? (cfg_compressed_lzma2 ? comp_done : dec_done) : enc_done;
+  assign core_error = mode_decode ? (cfg_compressed_lzma2 ? comp_error : dec_error) : enc_error;
+  assign core_bytes_in = mode_decode ? (cfg_compressed_lzma2 ? comp_bytes_in : dec_bytes_in) : enc_bytes_in;
+  assign core_bytes_out = mode_decode ? (cfg_compressed_lzma2 ? comp_bytes_out : dec_bytes_out) : enc_bytes_out;
+  assign core_cycles = mode_decode ? (cfg_compressed_lzma2 ? comp_cycles : dec_cycles) : enc_cycles;
 
-  assign s_axis_tready = mode_decode ? dec_s_ready : enc_s_ready;
-  assign m_axis_tdata = mode_decode ? dec_m_data : enc_m_data;
-  assign m_axis_tvalid = mode_decode ? dec_m_valid : enc_m_valid;
-  assign m_axis_tlast = mode_decode ? dec_m_last : enc_m_last;
+  assign s_axis_tready = mode_decode ? (cfg_compressed_lzma2 ? comp_s_ready : dec_s_ready) : enc_s_ready;
+  assign m_axis_tdata = mode_decode ? (cfg_compressed_lzma2 ? comp_m_data : dec_m_data) : enc_m_data;
+  assign m_axis_tvalid = mode_decode ? (cfg_compressed_lzma2 ? comp_m_valid : dec_m_valid) : enc_m_valid;
+  assign m_axis_tlast = mode_decode ? (cfg_compressed_lzma2 ? comp_m_last : dec_m_last) : enc_m_last;
   assign m_axis_tuser = {core_error != XZ_ERR_NONE, core_error[6:0]};
   assign irq = irq_enable && (core_done || core_error != XZ_ERR_NONE);
 
@@ -131,6 +146,7 @@ module xz_codec_top #(
       .cfg_lc(cfg_lc),
       .cfg_lp(cfg_lp),
       .cfg_pb(cfg_pb),
+      .cfg_compressed_lzma2(cfg_compressed_lzma2),
       .cfg_nice_len(cfg_nice_len),
       .cfg_search_depth(cfg_search_depth),
       .cfg_block_size_kib(cfg_block_size_kib),
@@ -186,9 +202,38 @@ module xz_codec_top #(
       .active_cycles(dec_cycles)
   );
 
+  xz_lzma2_compressed_core u_compressed_decoder (
+      .clk(clk),
+      .rst_n(core_rst_n),
+      .start(start_pulse && use_compressed_decode_w),
+      .mode_decode(1'b1),
+      .cfg_dict_size_id(cfg_dict_size_id),
+      .cfg_lc(cfg_lc),
+      .cfg_lp(cfg_lp),
+      .cfg_pb(cfg_pb),
+      .cfg_nice_len(cfg_nice_len),
+      .cfg_search_depth(cfg_search_depth),
+      .s_axis_tdata(s_axis_tdata),
+      .s_axis_tvalid(s_axis_tvalid && use_compressed_decode_w),
+      .s_axis_tready(comp_s_ready),
+      .s_axis_tlast(s_axis_tlast),
+      .m_axis_tdata(comp_m_data),
+      .m_axis_tvalid(comp_m_valid),
+      .m_axis_tready(m_axis_tready && use_compressed_decode_w),
+      .m_axis_tlast(comp_m_last),
+      .busy(comp_busy),
+      .done(comp_done),
+      .error_code(comp_error),
+      .bytes_in(comp_bytes_in),
+      .bytes_out(comp_bytes_out),
+      .active_cycles(comp_cycles)
+  );
+
   // Parsed but intentionally unused in v0.1. The fields are retained in the
   // public register map so the HC4/range-coder core can consume them directly.
   logic unused_cfg;
   assign unused_cfg = ^{cfg_lc, cfg_lp, cfg_pb, cfg_nice_len, cfg_search_depth,
-                        cfg_block_size_kib, s_axis_tuser};
+                        cfg_block_size_kib, s_axis_tuser, dec_s_ready, dec_m_data,
+                        dec_m_valid, dec_m_last, dec_busy, dec_done, dec_error,
+                        dec_bytes_in, dec_bytes_out, dec_cycles};
 endmodule

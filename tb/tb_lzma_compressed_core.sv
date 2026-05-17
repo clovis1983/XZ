@@ -151,6 +151,73 @@ module tb_lzma_compressed_core;
     end
   endtask
 
+  task automatic run_bad_control_case;
+    begin
+      rst_n = 1'b0;
+      start = 1'b0;
+      s_axis_tvalid = 1'b0;
+      s_axis_tlast = 1'b0;
+      timeout = 0;
+      repeat (3) @(negedge clk);
+      rst_n = 1'b1;
+      @(negedge clk);
+
+      start = 1'b1;
+      @(negedge clk);
+      start = 1'b0;
+      send_byte(8'h80, 1'b0);
+      @(negedge clk);
+      s_axis_tvalid = 1'b0;
+      s_axis_tlast = 1'b0;
+
+      while (!done && timeout < 20000) begin
+        @(negedge clk);
+        timeout++;
+      end
+      check(done, "bad control case completes");
+      check(error_code == XZ_ERR_UNSUPPORTED_LZMA2, "bad control reports unsupported LZMA2");
+      check(bytes_out == 64'd0, "bad control emits no bytes");
+      check(!m_axis_tvalid, "bad control has no AXI output");
+      start = 1'b0;
+    end
+  endtask
+
+  task automatic run_bad_property_case;
+    begin
+      rst_n = 1'b0;
+      start = 1'b0;
+      s_axis_tvalid = 1'b0;
+      s_axis_tlast = 1'b0;
+      timeout = 0;
+      repeat (3) @(negedge clk);
+      rst_n = 1'b1;
+      @(negedge clk);
+
+      start = 1'b1;
+      @(negedge clk);
+      start = 1'b0;
+      send_byte(8'hE0, 1'b0);
+      send_byte(8'h00, 1'b0);
+      send_byte(8'h00, 1'b0);
+      send_byte(8'h00, 1'b0);
+      send_byte(8'h04, 1'b0);
+      send_byte(8'hFF, 1'b0);
+      @(negedge clk);
+      s_axis_tvalid = 1'b0;
+      s_axis_tlast = 1'b0;
+
+      while (!done && timeout < 20000) begin
+        @(negedge clk);
+        timeout++;
+      end
+      check(done, "bad property case completes");
+      check(error_code == XZ_ERR_CONFIG, "bad property reports config error");
+      check(bytes_out == 64'd0, "bad property emits no bytes");
+      check(!m_axis_tvalid, "bad property has no AXI output");
+      start = 1'b0;
+    end
+  endtask
+
   task automatic run_match_unsupported_case;
     begin
       rst_n = 1'b0;
@@ -613,6 +680,8 @@ module tb_lzma_compressed_core;
     check(!busy, "core returns idle after done");
 
     run_truncated_case();
+    run_bad_control_case();
+    run_bad_property_case();
     run_match_unsupported_case();
     run_match_copy_case();
     run_short_rep_case();

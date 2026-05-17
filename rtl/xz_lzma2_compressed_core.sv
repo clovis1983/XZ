@@ -293,6 +293,21 @@ module xz_lzma2_compressed_core #(
     end
   endfunction
 
+  function automatic logic [31:0] dist_base_from_slot(input logic [5:0] slot);
+    begin
+      dist_base_from_slot = (32'd2 | {31'd0, slot[0]}) << ((slot >> 1) - 1);
+    end
+  endfunction
+
+  function automatic logic [PROB_ADDR_WIDTH-1:0] dist_special_addr_base(
+      input logic [5:0] slot);
+    logic [31:0] base;
+    begin
+      base = dist_base_from_slot(slot) - {26'd0, slot} - 32'd1;
+      dist_special_addr_base = PROB_DIST_SPECIAL_BASE + base[PROB_ADDR_WIDTH-1:0];
+    end
+  endfunction
+
   function automatic logic [3:0] update_match_state(input logic [3:0] state);
     begin
       update_match_state = (state < 4'd7) ? 4'd7 : 4'd10;
@@ -884,8 +899,7 @@ module xz_lzma2_compressed_core #(
             reps_q[0] <= {26'd0, decoded_symbol_q[5:0]};
             state_q <= ST_COPY_READ;
           end else begin
-            dist_base_q <= (32'd2 | {31'd0, decoded_symbol_q[0]}) <<
-                           ((decoded_symbol_q[5:0] >> 1) - 1);
+            dist_base_q <= dist_base_from_slot(decoded_symbol_q[5:0]);
             if (decoded_symbol_q < 9'd14) begin
               tree_model_q <= 9'd1;
               tree_symbol_q <= 9'd0;
@@ -893,14 +907,8 @@ module xz_lzma2_compressed_core #(
               tree_bit_index_q <= 4'd0;
               tree_reverse_q <= 1'b1;
               tree_return_q <= ST_DIST_SPECIAL_DONE;
-              tree_base_q <= PROB_DIST_SPECIAL_BASE +
-                             (((32'd2 | {31'd0, decoded_symbol_q[0]}) <<
-                               ((decoded_symbol_q[5:0] >> 1) - 1)) -
-                              decoded_symbol_q[5:0] - 32'd1);
-              rd_bit_addr_q <= PROB_DIST_SPECIAL_BASE +
-                               (((32'd2 | {31'd0, decoded_symbol_q[0]}) <<
-                                 ((decoded_symbol_q[5:0] >> 1) - 1)) -
-                                decoded_symbol_q[5:0] - 32'd1) + 14'd1;
+              tree_base_q <= dist_special_addr_base(decoded_symbol_q[5:0]);
+              rd_bit_addr_q <= dist_special_addr_base(decoded_symbol_q[5:0]) + 14'd1;
               state_q <= ST_BITTREE_NEXT;
             end else begin
               direct_bits_left_q <= ((decoded_symbol_q[5:0] >> 1) - 1) - 5'd4;
@@ -1080,8 +1088,7 @@ module xz_lzma2_compressed_core #(
         end
 
         ST_ERROR: begin
-          if (!start)
-            state_q <= ST_IDLE;
+          state_q <= ST_ERROR;
         end
 
         default: state_q <= ST_ERROR;

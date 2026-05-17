@@ -31,6 +31,7 @@ module xz_axi_lite_regs (
     output logic [2:0]  cfg_lc,
     output logic [2:0]  cfg_lp,
     output logic [2:0]  cfg_pb,
+    output logic        cfg_compressed_lzma2,
     output logic [7:0]  cfg_nice_len,
     output logic [7:0]  cfg_search_depth,
     output logic [15:0] cfg_block_size_kib,
@@ -77,6 +78,7 @@ module xz_axi_lite_regs (
   assign cfg_lc = cfg0_q[10:8];
   assign cfg_lp = cfg0_q[14:12];
   assign cfg_pb = cfg0_q[18:16];
+  assign cfg_compressed_lzma2 = cfg0_q[19];
   assign cfg_nice_len = cfg1_q[7:0];
   assign cfg_search_depth = cfg1_q[15:8];
   assign cfg_block_size_kib = cfg1_q[31:16];

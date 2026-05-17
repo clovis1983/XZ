@@ -4,14 +4,8 @@
 
 Repository: `https://github.com/clovis1983/XZ`
 
-Latest pushed commit at handoff:
-
-```text
-ddd0065 Add probability RAM controller
-```
-
-The project is in the transition from C model gate to RTL compressed-core
-implementation.
+The project is in the transition from compressed decoder core bring-up to
+top-level compressed decode integration.
 
 Completed:
 
@@ -28,15 +22,23 @@ Completed:
   - probability RAM controller
   - memory-top simulation coverage
 - Debug-stage corpus simulation using the smallest generated benchmark file.
+- Compressed decoder core directed bring-up:
+  - probability RAM initialization and updates
+  - raw LZMA2 compressed chunk header parsing
+  - range decoder init/normalize
+  - literal, normal match, short rep, long rep, special distance, direct-bit
+    distance error, truncate, bad control, and bad property directed coverage
+- Top-level compressed decode selection through `cfg0[19]`, with default
+  uncompressed decode behavior unchanged.
+- Top-level raw LZMA2 file-driven compressed decode directed target.
 
 Not completed yet:
 
-- Full compressed RTL decoder path.
+- Full `.xz` container compressed RTL decoder path.
 - Full compressed RTL encoder path.
 - HC4 match finder RTL.
-- LZMA symbol decoder/encoder FSMs.
-- Range normalize/byte input-output FSM.
-- Top-level compressed-core integration.
+- LZMA symbol encoder FSMs.
+- Top-level `.xz` compressed stream parser integration.
 
 ## Important Files
 
@@ -45,7 +47,7 @@ Core RTL:
 - `rtl/xz_codec_top.sv`: current top-level wrapper.
 - `rtl/xz_codec_pkg.sv`: constants, CRC helpers, dict id helpers.
 - `rtl/xz_codec_mem_top.sv`: centralized memory wrapper.
-- `rtl/xz_lzma2_compressed_core.sv`: compressed-core shell; not yet connected to top data path.
+- `rtl/xz_lzma2_compressed_core.sv`: raw LZMA2 compressed decoder core.
 - `rtl/xz_range_bit.sv`: one probability-decision range encode/decode step.
 - `rtl/xz_prob_ram_ctrl.sv`: probability RAM init and read-modify-write update.
 - `rtl/xz_lzma2_uncompressed_encoder.sv`: working uncompressed LZMA2 encoder.
@@ -106,6 +108,18 @@ Fast RTL shared-core unit test:
 make rtl-core-units
 ```
 
+Compressed core directed test:
+
+```sh
+make rtl-compressed-core
+```
+
+Top-level raw LZMA2 compressed directed test:
+
+```sh
+make rtl-compressed-top
+```
+
 Debug-stage corpus simulation, currently only the smallest generated benchmark
 file:
 
@@ -141,6 +155,8 @@ Expected local verification state at handoff:
 
 ```text
 make rtl-core-units  PASS
+make rtl-compressed-core PASS
+make rtl-compressed-top  PASS
 make corpus-sim      PASS, runs prog_b only
 make smoke           PASS
 make cmodel-gate-rtl PASS
@@ -152,32 +168,27 @@ make cmodel-gate-rtl PASS
 uncompressed RTL container path on generated corpus files. This is intentional
 for debug-stage regression speed and container stability.
 
-The compressed core shell exists but is not yet connected into `xz_codec_top`.
-It should not be treated as a functional compressed RTL codec yet.
+`make corpus-sim` and `make corpus-sim-all` do not yet exercise the compressed
+decoder path. Use `make rtl-compressed-core` and `make rtl-compressed-top` for
+compressed decoder directed coverage.
 
-`xz_lzma2_compressed_core.sv` currently instantiates memory top and exposes
-configuration/AXI-style signals, but returns `XZ_ERR_UNSUPPORTED_LZMA2`.
+`xz_lzma2_compressed_core.sv` currently accepts raw LZMA2 compressed chunks, not
+a full `.xz` container stream. In `xz_codec_top`, set `cfg0[19]` with decode mode
+to route AXI-Stream input to the compressed core. Leave `cfg0[19]` clear for the
+existing uncompressed `.xz` decoder path.
 
 ## Recommended Next Steps
 
-1. Connect `xz_prob_ram_ctrl` into `xz_lzma2_compressed_core`.
-2. Add range normalize/byte input FSM for decoder:
-   - initialize `code` from first five bytes
-   - maintain `range`
-   - normalize when `range < 1<<24`
-3. Implement compressed decoder literal-only path:
-   - parse LZMA2 compressed chunk header
-   - reset probability RAM
-   - decode `is_match=0` literals
-   - write literals to dictionary memory and output FIFO
-4. Add a tiny RTL compressed-decoder unit test before using corpus:
-   - C model creates a literal-only compressed stream if needed
-   - RTL decoder output must match input bytes
-5. Extend decoder to normal match and rep match:
-   - length decoder
-   - distance slot/special/align decode
-   - dictionary copy with overlap
-6. Only after decoder works, start encoder path:
+1. Extend top-level compressed decode from raw LZMA2 chunks to `.xz` Block
+   parsing, CRC/check verification, Index/Footer, and final stream accounting.
+2. Add broader file-driven compressed decoder cases once `.xz` container support
+   exists.
+3. Add remaining compressed decoder stress cases:
+   - rep1/rep2/rep3 rotation
+   - dictionary wrap
+   - large direct distances that remain valid
+   - multi-chunk property reset/state retention
+4. Only after decoder works, start encoder path:
    - range encoder byte output FSM
    - literal encode
    - HC4 match finder
