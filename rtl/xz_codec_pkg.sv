@@ -100,6 +100,7 @@ package xz_codec_pkg;
         2'd0: xz_dict_prop_from_id = 6'd8;   // 64 KiB
         2'd1: xz_dict_prop_from_id = 6'd12;  // 256 KiB
         2'd2: xz_dict_prop_from_id = 6'd16;  // 1 MiB
+        2'd3: xz_dict_prop_from_id = 6'd4;   // 16 KiB
         default: xz_dict_prop_from_id = 6'd12;
       endcase
     end

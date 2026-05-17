@@ -50,7 +50,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -96,6 +96,9 @@ cmodel-gate-liblzma: cmodel-liblzma
 
 cmodel-gate-rtl: cmodel-rtl
 	$(MAKE) cmodel-gate CMODEL_MODE=compressed CMODEL_COMPRESSED_BACKEND=rtl
+
+pre-rtl-dict-report: cmodel-rtl bench-corpus
+	python3 scripts/pre_rtl_dict_report.py --manifest $(BENCH_MANIFEST) --rtl-cmodel $(CMODEL_RTL) --out-dir $(CMODEL_REPORT_DIR) --dict-kib 16,64 --lc 3 --lp 0 --pb 2 --nice-len 64 --depth 16 --chunk-size $(CMODEL_CHUNK_SIZE)
 
 param-sweep: cmodel-rtl bench-corpus
 	python3 scripts/param_sweep.py --manifest $(BENCH_MANIFEST) --out-dir $(CMODEL_REPORT_DIR) --backend rtl --rtl-cmodel $(CMODEL_RTL) --chunk-size $(CMODEL_CHUNK_SIZE) --dict-kib $(SWEEP_DICT_KIB) --nice-len $(SWEEP_NICE_LEN) --depth $(SWEEP_DEPTH) --top $(SWEEP_TOP)

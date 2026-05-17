@@ -137,6 +137,8 @@ static int check_size(int check_type)
 static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 {
     switch (dict_kib) {
+    case 16:
+        return 4;
     case 64:
         return 8;
     case 256:
@@ -151,6 +153,8 @@ static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 static uint32_t dict_kib_from_prop(uint8_t dict_prop)
 {
     switch (dict_prop) {
+    case 4:
+        return 16;
     case 8:
         return 64;
     case 12:
@@ -348,7 +352,7 @@ static void usage(const char *argv0)
             "usage: %s [options] <input> <output.xz>\n"
             "options:\n"
             "  --check 0|1|4       XZ check type: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary size in KiB: 64, 256, or 1024 (default 64)\n"
+            "  --dict-kib N        Dictionary size in KiB: 16, 64, 256, or 1024 (default 64)\n"
             "  --dict-prop N       Raw LZMA2 dict property, kept for RTL compatibility\n"
             "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"

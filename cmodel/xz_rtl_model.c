@@ -149,6 +149,15 @@ typedef struct {
     uint64_t hc4_probes;
 } rtl_stats_t;
 
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+    size_t pos;
+    uint32_t code;
+    uint32_t range;
+    uint64_t bit_events;
+} rd_t;
+
 static int vec_reserve(vec_t *v, size_t need)
 {
     if (need <= v->cap)
@@ -275,6 +284,8 @@ static int check_size(int check_type)
 static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 {
     switch (dict_kib) {
+    case 16:
+        return 4;
     case 64:
         return 8;
     case 256:
@@ -289,6 +300,8 @@ static uint8_t dict_prop_from_kib(uint32_t dict_kib)
 static uint32_t dict_kib_from_prop(uint8_t dict_prop)
 {
     switch (dict_prop) {
+    case 4:
+        return 16;
     case 8:
         return 64;
     case 12:
@@ -438,6 +451,118 @@ static int rc_flush(rc_t *rc)
         if (rc_shift_low(rc) != 0)
             return -1;
     }
+    return 0;
+}
+
+static int rd_init(rd_t *rd, const uint8_t *data, size_t len)
+{
+    if (len < 5)
+        return -1;
+    rd->data = data;
+    rd->len = len;
+    rd->pos = 0;
+    rd->code = 0;
+    rd->range = UINT32_MAX;
+    rd->bit_events = 0;
+    for (int i = 0; i < 5; ++i)
+        rd->code = (rd->code << 8) | rd->data[rd->pos++];
+    return 0;
+}
+
+static int rd_normalize(rd_t *rd)
+{
+    while (rd->range < RC_TOP_VALUE) {
+        if (rd->pos >= rd->len)
+            return -1;
+        rd->range <<= 8;
+        rd->code = (rd->code << 8) | rd->data[rd->pos++];
+    }
+    return 0;
+}
+
+static int rd_bit(rd_t *rd, prob_t *prob, uint32_t *bit)
+{
+    if (rd_normalize(rd) != 0)
+        return -1;
+
+    uint32_t p = *prob;
+    uint32_t bound = (rd->range >> RC_BIT_MODEL_TOTAL_BITS) * p;
+    if (rd->code < bound) {
+        rd->range = bound;
+        p += (RC_BIT_MODEL_TOTAL - p) >> RC_MOVE_BITS;
+        *bit = 0;
+    } else {
+        rd->code -= bound;
+        rd->range -= bound;
+        p -= p >> RC_MOVE_BITS;
+        *bit = 1;
+    }
+    *prob = (prob_t)p;
+    ++rd->bit_events;
+    return 0;
+}
+
+static int rd_direct(rd_t *rd, uint32_t bit_count, uint32_t *value)
+{
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < bit_count; ++i) {
+        if (rd_normalize(rd) != 0)
+            return -1;
+        rd->range >>= 1;
+        uint32_t bit = 0;
+        if (rd->code >= rd->range) {
+            rd->code -= rd->range;
+            bit = 1;
+        }
+        out = (out << 1) | bit;
+        ++rd->bit_events;
+    }
+    *value = out;
+    return 0;
+}
+
+static int rd_bittree(rd_t *rd, prob_t *probs, uint32_t bit_count, uint32_t *symbol)
+{
+    uint32_t model = 1;
+    for (uint32_t i = 0; i < bit_count; ++i) {
+        uint32_t bit = 0;
+        if (rd_bit(rd, &probs[model], &bit) != 0)
+            return -1;
+        model = (model << 1) | bit;
+    }
+    *symbol = model - (1U << bit_count);
+    return 0;
+}
+
+static int rd_bittree_reverse(rd_t *rd, prob_t *probs, uint32_t bit_count,
+                              uint32_t *symbol)
+{
+    uint32_t model = 1;
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < bit_count; ++i) {
+        uint32_t bit = 0;
+        if (rd_bit(rd, &probs[model], &bit) != 0)
+            return -1;
+        model = (model << 1) | bit;
+        out |= bit << i;
+    }
+    *symbol = out;
+    return 0;
+}
+
+static int rd_bittree_reverse_offset(rd_t *rd, prob_t *probs, int32_t offset,
+                                     uint32_t bit_count, uint32_t *symbol)
+{
+    uint32_t model = 1;
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < bit_count; ++i) {
+        uint32_t bit = 0;
+        if (rd_bit(rd, &probs[offset + (int32_t)model], &bit) != 0)
+            return -1;
+        model = (model << 1) | bit;
+        out |= bit << i;
+    }
+    *symbol = out;
     return 0;
 }
 
@@ -677,6 +802,223 @@ static int lzma_rep_match(lzma_enc_t *e, rc_t *rc, uint32_t pos, uint32_t len, u
 
     ++e->rep_matches;
     e->match_bytes += len;
+    return 0;
+}
+
+static int lzma_decode_len(rd_t *rd, len_probs_t *lp, uint32_t pos_state, uint32_t *len)
+{
+    uint32_t bit = 0;
+    uint32_t symbol = 0;
+    if (rd_bit(rd, &lp->choice, &bit) != 0)
+        return -1;
+    if (bit == 0) {
+        if (rd_bittree(rd, lp->low[pos_state], LZMA_LEN_LOW_BITS, &symbol) != 0)
+            return -1;
+        *len = symbol + LZMA_MATCH_LEN_MIN;
+        return 0;
+    }
+
+    if (rd_bit(rd, &lp->choice2, &bit) != 0)
+        return -1;
+    if (bit == 0) {
+        if (rd_bittree(rd, lp->mid[pos_state], LZMA_LEN_MID_BITS, &symbol) != 0)
+            return -1;
+        *len = symbol + LZMA_MATCH_LEN_MIN + LZMA_LEN_LOW_SYMBOLS;
+        return 0;
+    }
+
+    if (rd_bittree(rd, lp->high, LZMA_LEN_HIGH_BITS, &symbol) != 0)
+        return -1;
+    *len = symbol + LZMA_MATCH_LEN_MIN + LZMA_LEN_LOW_SYMBOLS + LZMA_LEN_MID_SYMBOLS;
+    return 0;
+}
+
+static int lzma_decode_literal(lzma_enc_t *e, rd_t *rd, vec_t *out, size_t dict_start)
+{
+    uint32_t pos = (uint32_t)out->len;
+    uint8_t prev = out->len == dict_start ? 0 : out->data[out->len - 1U];
+    prob_t *sub = literal_subcoder(e, pos, prev);
+    uint32_t symbol = 1;
+
+    if (e->state < LZMA_LIT_STATES) {
+        do {
+            uint32_t bit = 0;
+            if (rd_bit(rd, &sub[symbol], &bit) != 0)
+                return -1;
+            symbol = (symbol << 1) | bit;
+        } while (symbol < 0x100U);
+    } else {
+        uint32_t match_byte = 0;
+        if (out->len > dict_start + (size_t)e->reps[0])
+            match_byte = out->data[out->len - e->reps[0] - 1U];
+        uint32_t matched = 1;
+        do {
+            uint32_t bit = 0;
+            match_byte <<= 1;
+            uint32_t match_bit = (match_byte >> 8) & 1U;
+            uint32_t sub_idx = symbol;
+            if (matched)
+                sub_idx += 0x100U + (match_bit << 8);
+            if (rd_bit(rd, &sub[sub_idx], &bit) != 0)
+                return -1;
+            symbol = (symbol << 1) | bit;
+            if (bit != match_bit)
+                matched = 0;
+        } while (symbol < 0x100U);
+    }
+
+    if (vec_push(out, (uint8_t)symbol) != 0)
+        return -1;
+    update_literal(&e->state);
+    ++e->literals;
+    return 0;
+}
+
+static int lzma_copy_match(lzma_enc_t *e, vec_t *out, uint32_t len, uint32_t dist,
+                           size_t dict_start, uint32_t active_dict_size)
+{
+    if (dist == 0 || dist > active_dict_size || dist > out->len - dict_start)
+        return -1;
+    for (uint32_t i = 0; i < len; ++i) {
+        uint8_t b = out->data[out->len - dist];
+        if (vec_push(out, b) != 0)
+            return -1;
+    }
+    e->match_bytes += len;
+    return 0;
+}
+
+static int lzma_decode_match(lzma_enc_t *e, rd_t *rd, vec_t *out, uint32_t pos_state,
+                             size_t dict_start, uint32_t active_dict_size)
+{
+    uint32_t len = 0;
+    uint32_t dist_slot = 0;
+    uint32_t dist = 0;
+
+    update_match(&e->state);
+    if (lzma_decode_len(rd, &e->match_len, pos_state, &len) != 0)
+        return -1;
+    if (rd_bittree(rd, e->dist_slot[get_dist_state(len)], LZMA_DIST_SLOT_BITS,
+                   &dist_slot) != 0)
+        return -1;
+
+    if (dist_slot < LZMA_DIST_MODEL_START) {
+        dist = dist_slot;
+    } else {
+        uint32_t footer_bits = (dist_slot >> 1) - 1U;
+        uint32_t base = (2U | (dist_slot & 1U)) << footer_bits;
+        uint32_t reduced = 0;
+        if (dist_slot < LZMA_DIST_MODEL_END) {
+            if (rd_bittree_reverse_offset(rd, e->dist_special,
+                                          (int32_t)base - (int32_t)dist_slot - 1,
+                                          footer_bits, &reduced) != 0)
+                return -1;
+        } else {
+            uint32_t direct = 0;
+            uint32_t align = 0;
+            if (rd_direct(rd, footer_bits - LZMA_ALIGN_BITS, &direct) != 0 ||
+                rd_bittree_reverse(rd, e->dist_align, LZMA_ALIGN_BITS, &align) != 0)
+                return -1;
+            reduced = (direct << LZMA_ALIGN_BITS) | align;
+        }
+        dist = base + reduced;
+    }
+
+    e->reps[3] = e->reps[2];
+    e->reps[2] = e->reps[1];
+    e->reps[1] = e->reps[0];
+    e->reps[0] = dist;
+    ++e->matches;
+    return lzma_copy_match(e, out, len, dist + 1U, dict_start, active_dict_size);
+}
+
+static int lzma_decode_rep(lzma_enc_t *e, rd_t *rd, vec_t *out, uint32_t pos_state,
+                           size_t dict_start, uint32_t active_dict_size)
+{
+    uint32_t bit = 0;
+    uint32_t rep = 0;
+    uint32_t len = 1;
+
+    if (rd_bit(rd, &e->is_rep0[e->state], &bit) != 0)
+        return -1;
+    if (bit == 0) {
+        if (rd_bit(rd, &e->is_rep0_long[e->state][pos_state], &bit) != 0)
+            return -1;
+        if (bit == 0) {
+            update_short_rep(&e->state);
+            ++e->rep_matches;
+            return lzma_copy_match(e, out, 1, e->reps[0] + 1U, dict_start,
+                                   active_dict_size);
+        }
+    } else {
+        if (rd_bit(rd, &e->is_rep1[e->state], &bit) != 0)
+            return -1;
+        if (bit == 0) {
+            rep = 1;
+        } else {
+            if (rd_bit(rd, &e->is_rep2[e->state], &bit) != 0)
+                return -1;
+            rep = bit == 0 ? 2U : 3U;
+        }
+
+        uint32_t distance = e->reps[rep];
+        if (rep == 3)
+            e->reps[3] = e->reps[2];
+        if (rep >= 2)
+            e->reps[2] = e->reps[1];
+        e->reps[1] = e->reps[0];
+        e->reps[0] = distance;
+    }
+
+    if (lzma_decode_len(rd, &e->rep_len, pos_state, &len) != 0)
+        return -1;
+    update_long_rep(&e->state);
+    ++e->rep_matches;
+    return lzma_copy_match(e, out, len, e->reps[0] + 1U, dict_start, active_dict_size);
+}
+
+static int lzma_decode_chunk(const uint8_t *data, uint32_t compressed_len,
+                             uint32_t unpacked_len, const xz_cfg_t *cfg,
+                             lzma_enc_t *dec, vec_t *out, size_t dict_start,
+                             rtl_stats_t *stats)
+{
+    rd_t rd;
+    size_t target = out->len + unpacked_len;
+    uint32_t active_dict_size = cfg->dict_kib * 1024U;
+    if (rd_init(&rd, data, compressed_len) != 0)
+        return -1;
+
+    while (out->len < target) {
+        uint32_t bit = 0;
+        uint32_t pos_state = ((uint32_t)out->len) & dec->pos_mask;
+        if (rd_bit(&rd, &dec->is_match[dec->state][pos_state], &bit) != 0)
+            return -1;
+        if (bit == 0) {
+            if (lzma_decode_literal(dec, &rd, out, dict_start) != 0)
+                return -1;
+        } else {
+            if (rd_bit(&rd, &dec->is_rep[dec->state], &bit) != 0)
+                return -1;
+            if (bit == 0) {
+                if (lzma_decode_match(dec, &rd, out, pos_state, dict_start,
+                                      active_dict_size) != 0)
+                    return -1;
+            } else {
+                if (lzma_decode_rep(dec, &rd, out, pos_state, dict_start,
+                                    active_dict_size) != 0)
+                    return -1;
+            }
+        }
+    }
+
+    if (out->len != target)
+        return -1;
+    stats->literals += dec->literals;
+    stats->matches += dec->matches;
+    stats->rep_matches += dec->rep_matches;
+    stats->match_bytes += dec->match_bytes;
+    stats->rc_bits += rd.bit_events;
+    dec->literals = dec->matches = dec->rep_matches = dec->match_bytes = 0;
     return 0;
 }
 
@@ -1239,6 +1581,328 @@ fail:
     return -1;
 }
 
+static uint32_t read_le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t read_le64(const uint8_t *p)
+{
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; --i)
+        v = (v << 8) | p[i];
+    return v;
+}
+
+static int read_vli(const uint8_t *data, size_t len, size_t *pos, uint64_t *value)
+{
+    uint64_t v = 0;
+    unsigned shift = 0;
+    for (unsigned i = 0; i < 9; ++i) {
+        if (*pos >= len || shift >= 64)
+            return -1;
+        uint8_t b = data[(*pos)++];
+        v |= (uint64_t)(b & 0x7FU) << shift;
+        if ((b & 0x80U) == 0) {
+            *value = v;
+            return 0;
+        }
+        shift += 7;
+    }
+    return -1;
+}
+
+static int parse_lclppb(uint8_t prop, xz_cfg_t *cfg)
+{
+    if (prop >= 9U * 5U * 5U)
+        return -1;
+    cfg->lc = prop % 9U;
+    prop /= 9U;
+    cfg->lp = prop % 5U;
+    cfg->pb = prop / 5U;
+    return cfg->lc + cfg->lp <= 4U && cfg->pb <= 4U ? 0 : -1;
+}
+
+static int parse_block_header(const uint8_t *input, size_t input_len, size_t *pos,
+                              xz_cfg_t *cfg, size_t *header_size_out)
+{
+    if (*pos >= input_len)
+        return -1;
+    size_t start = *pos;
+    size_t header_size = ((size_t)input[start] + 1U) * 4U;
+    if (header_size < 8U || start + header_size > input_len)
+        return -1;
+    uint32_t seen_crc = read_le32(input + start + header_size - 4U);
+    if (crc32_bytes(input + start, header_size - 4U) != seen_crc)
+        return -1;
+
+    uint8_t flags = input[start + 1U];
+    if ((flags & 0x3CU) != 0 || (flags & 0x03U) != 0)
+        return -1;
+    size_t p = start + 2U;
+    size_t end = start + header_size - 4U;
+    uint64_t ignored_size = 0;
+    if ((flags & 0x40U) != 0 && read_vli(input, end, &p, &ignored_size) != 0)
+        return -1;
+    if ((flags & 0x80U) != 0 && read_vli(input, end, &p, &ignored_size) != 0)
+        return -1;
+    uint64_t filter_id = 0;
+    uint64_t prop_size = 0;
+    if (read_vli(input, end, &p, &filter_id) != 0 || filter_id != 0x21U)
+        return -1;
+    if (read_vli(input, end, &p, &prop_size) != 0 || prop_size != 1U || p >= end)
+        return -1;
+    cfg->dict_prop = input[p++];
+    cfg->dict_kib = dict_kib_from_prop(cfg->dict_prop);
+    if (cfg->dict_kib == 0)
+        cfg->dict_kib = (uint32_t)(2U | (cfg->dict_prop & 1U)) << ((cfg->dict_prop / 2U) + 1U);
+    if (cfg->dict_kib == 0 || cfg->dict_kib > 64U)
+        return -1;
+    while (p < end) {
+        if (input[p++] != 0)
+            return -1;
+    }
+    *pos = start + header_size;
+    *header_size_out = header_size;
+    return 0;
+}
+
+static int reset_lzma_decoder(lzma_enc_t *dec, const xz_cfg_t *cfg, int *initialized)
+{
+    if (*initialized)
+        lzma_free(dec);
+    if (lzma_init(dec, cfg) != 0) {
+        *initialized = 0;
+        return -1;
+    }
+    *initialized = 1;
+    return 0;
+}
+
+static int decode_lzma2_payload(const uint8_t *input, size_t input_len, size_t *pos,
+                                xz_cfg_t *cfg, vec_t *out, rtl_stats_t *stats)
+{
+    lzma_enc_t dec;
+    int dec_initialized = 0;
+    int props_known = 0;
+    size_t dict_start = out->len;
+    memset(&dec, 0, sizeof(dec));
+    memset(stats, 0, sizeof(*stats));
+
+    for (;;) {
+        if (*pos >= input_len)
+            goto fail;
+        uint8_t control = input[(*pos)++];
+        if (control == 0x00)
+            break;
+
+        if (control == 0x01 || control == 0x02) {
+            if (*pos + 2U > input_len)
+                goto fail;
+            uint32_t unpacked = (((uint32_t)input[*pos] << 8) | input[*pos + 1U]) + 1U;
+            *pos += 2U;
+            if (*pos + unpacked > input_len)
+                goto fail;
+            if (control == 0x01)
+                dict_start = out->len;
+            if (vec_write(out, input + *pos, unpacked) != 0)
+                goto fail;
+            *pos += unpacked;
+            ++stats->uncompressed_chunks;
+            continue;
+        }
+
+        if (control < 0x80)
+            goto fail;
+
+        if (*pos + 4U > input_len)
+            goto fail;
+        uint32_t unpacked = (((uint32_t)(control & 0x1FU) << 16) |
+                             ((uint32_t)input[*pos] << 8) | input[*pos + 1U]) + 1U;
+        uint32_t compressed = (((uint32_t)input[*pos + 2U] << 8) |
+                               input[*pos + 3U]) + 1U;
+        *pos += 4U;
+
+        if (control >= 0xE0)
+            dict_start = out->len;
+
+        if (control >= 0xC0) {
+            if (*pos >= input_len || parse_lclppb(input[(*pos)++], cfg) != 0)
+                goto fail;
+            props_known = 1;
+            if (reset_lzma_decoder(&dec, cfg, &dec_initialized) != 0)
+                goto fail;
+        } else if (control >= 0xA0) {
+            if (!props_known || reset_lzma_decoder(&dec, cfg, &dec_initialized) != 0)
+                goto fail;
+        } else if (!dec_initialized) {
+            goto fail;
+        }
+
+        if (*pos + compressed > input_len)
+            goto fail;
+        if (lzma_decode_chunk(input + *pos, compressed, unpacked, cfg, &dec, out,
+                              dict_start, stats) != 0)
+            goto fail;
+        *pos += compressed;
+        ++stats->compressed_chunks;
+    }
+
+    if (dec_initialized)
+        lzma_free(&dec);
+    return 0;
+
+fail:
+    if (dec_initialized)
+        lzma_free(&dec);
+    return -1;
+}
+
+static int parse_index(const uint8_t *input, size_t start, size_t end,
+                       uint64_t expected_unpadded, uint64_t expected_uncompressed)
+{
+    if (start + 5U > end || input[start] != 0x00)
+        return -1;
+    uint32_t seen_crc = read_le32(input + end - 4U);
+    if (crc32_bytes(input + start, end - start - 4U) != seen_crc)
+        return -1;
+
+    size_t p = start + 1U;
+    uint64_t records = 0;
+    uint64_t unpadded = 0;
+    uint64_t uncompressed = 0;
+    if (read_vli(input, end - 4U, &p, &records) != 0 || records != 1U)
+        return -1;
+    if (read_vli(input, end - 4U, &p, &unpadded) != 0 ||
+        read_vli(input, end - 4U, &p, &uncompressed) != 0)
+        return -1;
+    if (unpadded != expected_unpadded || uncompressed != expected_uncompressed)
+        return -1;
+    while (p < end - 4U) {
+        if (input[p++] != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int parse_empty_index(const uint8_t *input, size_t start, size_t end)
+{
+    if (start + 5U > end || input[start] != 0x00)
+        return -1;
+    uint32_t seen_crc = read_le32(input + end - 4U);
+    if (crc32_bytes(input + start, end - start - 4U) != seen_crc)
+        return -1;
+    size_t p = start + 1U;
+    uint64_t records = 1;
+    if (read_vli(input, end - 4U, &p, &records) != 0 || records != 0U)
+        return -1;
+    while (p < end - 4U) {
+        if (input[p++] != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int decode_xz(const uint8_t *input, uint64_t input_len, vec_t *out,
+                     rtl_stats_t *stats)
+{
+    static const uint8_t magic[6] = {0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00};
+    xz_cfg_t cfg = {
+        .dict_kib = 64,
+        .dict_prop = 8,
+        .lc = 3,
+        .lp = 0,
+        .pb = 2,
+        .nice_len = 64,
+        .depth = 16,
+        .chunk_size = 65536,
+        .check_type = XZ_CHECK_CRC32,
+        .force_uncompressed = 0,
+        .enable_matches = 1,
+        .enable_optimum = 1,
+    };
+
+    memset(out, 0, sizeof(*out));
+    if (input_len < 24U || memcmp(input, magic, sizeof(magic)) != 0)
+        return -1;
+    cfg.check_type = input[7] & 0x0F;
+    if (input[6] != 0x00 || input[7] != (uint8_t)cfg.check_type ||
+        crc32_bytes(input + 6, 2) != read_le32(input + 8) ||
+        check_size(cfg.check_type) < 0)
+        return -1;
+
+    size_t pos = 12U;
+    if (input[pos] == 0x00) {
+        if (input_len < 24U || input[input_len - 2U] != 0x59 ||
+            input[input_len - 1U] != 0x5A)
+            return -1;
+        uint32_t backward_size = read_le32(input + input_len - 8U);
+        uint32_t footer_crc_seen = read_le32(input + input_len - 12U);
+        if (input[input_len - 4U] != 0x00 || input[input_len - 3U] != (uint8_t)cfg.check_type ||
+            footer_crc(backward_size, cfg.check_type) != footer_crc_seen)
+            return -1;
+        size_t index_size = ((size_t)backward_size + 1U) * 4U;
+        if ((size_t)input_len != 12U + index_size + 12U)
+            return -1;
+        int empty_rc = parse_empty_index(input, 12U, 12U + index_size);
+        if (empty_rc == 0)
+            memset(stats, 0, sizeof(*stats));
+        return empty_rc;
+    }
+
+    size_t block_header_size = 0;
+    if (parse_block_header(input, (size_t)input_len, &pos, &cfg, &block_header_size) != 0)
+        return -1;
+    size_t block_payload_start = pos;
+    if (decode_lzma2_payload(input, (size_t)input_len, &pos, &cfg, out, stats) != 0)
+        goto fail;
+
+    size_t compressed_size = pos - block_payload_start;
+    size_t block_pad = (4U - ((block_header_size + compressed_size) & 3U)) & 3U;
+    if (pos + block_pad > input_len)
+        goto fail;
+    for (size_t i = 0; i < block_pad; ++i)
+        if (input[pos++] != 0)
+            goto fail;
+
+    int csize = check_size(cfg.check_type);
+    if (csize < 0 || pos + (size_t)csize > input_len)
+        goto fail;
+    if (cfg.check_type == XZ_CHECK_CRC32) {
+        if (crc32_bytes(out->data, out->len) != read_le32(input + pos))
+            goto fail;
+    } else if (cfg.check_type == XZ_CHECK_CRC64) {
+        if (crc64_bytes(out->data, out->len) != read_le64(input + pos))
+            goto fail;
+    }
+    pos += (size_t)csize;
+
+    if (input_len < pos + 12U || input[input_len - 2U] != 0x59 ||
+        input[input_len - 1U] != 0x5A)
+        goto fail;
+    uint32_t backward_size = read_le32(input + input_len - 8U);
+    uint32_t footer_crc_seen = read_le32(input + input_len - 12U);
+    if (input[input_len - 4U] != 0x00 || input[input_len - 3U] != (uint8_t)cfg.check_type ||
+        footer_crc(backward_size, cfg.check_type) != footer_crc_seen)
+        goto fail;
+
+    size_t index_size = ((size_t)backward_size + 1U) * 4U;
+    size_t index_start = (size_t)input_len - 12U - index_size;
+    if (index_start != pos)
+        goto fail;
+    uint64_t unpadded = block_header_size + compressed_size + (uint64_t)csize;
+    if (parse_index(input, index_start, (size_t)input_len - 12U, unpadded, out->len) != 0)
+        goto fail;
+
+    return 0;
+
+fail:
+    free(out->data);
+    memset(out, 0, sizeof(*out));
+    return -1;
+}
+
 static uint8_t *read_file(const char *path, uint64_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -1313,10 +1977,11 @@ static int validate_cfg(const xz_cfg_t *cfg)
 static void usage(const char *argv0)
 {
     fprintf(stderr,
-            "usage: %s [options] <input> <output.xz>\n"
+            "usage: %s [options] <input> <output>\n"
             "options:\n"
+            "  --mode encode|decode Encode to .xz or decode .xz (default encode)\n"
             "  --check 0|1|4       XZ check: none/crc32/crc64 (default 1)\n"
-            "  --dict-kib N        Dictionary KiB: 64, 256, or 1024 (default 64)\n"
+            "  --dict-kib N        Dictionary KiB: 16, 64, 256, or 1024 (default 64)\n"
             "  --dict-prop N       Raw LZMA2 dictionary property\n"
             "  --lc N              Literal context bits, lc+lp<=4 (default 3)\n"
             "  --lp N              Literal position bits, lc+lp<=4 (default 0)\n"
@@ -1346,12 +2011,23 @@ int main(int argc, char **argv)
         .enable_matches = 1,
         .enable_optimum = 1,
     };
+    int mode_decode = 0;
     const char *input_path = NULL;
     const char *output_path = NULL;
     uint32_t tmp = 0;
 
     for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--check") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            const char *mode = argv[++i];
+            if (strcmp(mode, "encode") == 0) {
+                mode_decode = 0;
+            } else if (strcmp(mode, "decode") == 0) {
+                mode_decode = 1;
+            } else {
+                usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--check") == 0 && i + 1 < argc) {
             if (parse_u32(argv[++i], &tmp) != 0) {
                 usage(argv[0]);
                 return 1;
@@ -1440,10 +2116,11 @@ int main(int argc, char **argv)
     vec_t output;
     rtl_stats_t stats;
     clock_t start = clock();
-    int rc = encode_xz(input, input_len, &cfg, &output, &stats);
+    int rc = mode_decode ? decode_xz(input, input_len, &output, &stats)
+                         : encode_xz(input, input_len, &cfg, &output, &stats);
     double seconds = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
     if (rc != 0) {
-        fprintf(stderr, "encode failed\n");
+        fprintf(stderr, "%s failed\n", mode_decode ? "decode" : "encode");
         free(input);
         return 1;
     }
@@ -1455,16 +2132,18 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    uint64_t perf_bytes = mode_decode ? (uint64_t)output.len : input_len;
     double ratio = input_len == 0 ? 0.0 : (double)output.len / (double)input_len;
-    double mbps = seconds <= 0.0 ? 0.0 : (double)input_len / seconds / (1024.0 * 1024.0);
-    printf("input_bytes=%" PRIu64 " output_bytes=%zu ratio=%.6f enc_MBps=%.2f "
+    double mbps = seconds <= 0.0 ? 0.0 : (double)perf_bytes / seconds / (1024.0 * 1024.0);
+    printf("mode=%s input_bytes=%" PRIu64 " output_bytes=%zu ratio=%.6f %s_MBps=%.2f "
            "dict_kib=%u dict_prop=%u lc=%u lp=%u pb=%u nice_len=%u depth=%u "
            "chunk_size=%u check=%d backend=rtl_friendly_hc4_range "
            "compressed_chunks=%" PRIu64 " uncompressed_chunks=%" PRIu64 " "
            "literals=%" PRIu64 " matches=%" PRIu64 " rep_matches=%" PRIu64
            " match_bytes=%" PRIu64 " "
            "rc_bits=%" PRIu64 " hc4_probes=%" PRIu64 "\n",
-           input_len, output.len, ratio, mbps,
+           mode_decode ? "decode" : "encode", input_len, output.len, ratio,
+           mode_decode ? "dec" : "enc", mbps,
            cfg.dict_kib, cfg.dict_prop, cfg.lc, cfg.lp, cfg.pb, cfg.nice_len,
            cfg.depth, cfg.chunk_size, cfg.check_type, stats.compressed_chunks,
            stats.uncompressed_chunks, stats.literals, stats.matches, stats.rep_matches,

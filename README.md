@@ -113,6 +113,12 @@ build/cmodel/xz_rtl_model \
   input.bin output.xz
 ```
 
+The same binary can decode streams emitted by this RTL-friendly C model:
+
+```sh
+build/cmodel/xz_rtl_model --mode decode output.xz decoded.bin
+```
+
 This model doesn't link against liblzma. It contains a local probability RAM,
 bit-serial range encoder, literal path, normal-match path, rep-match path,
 HC4-style hash-chain match finder, up to four same-length match candidates,
@@ -246,6 +252,21 @@ when an `xz` CLI is available. If `xz` is not installed, it falls back to Python
 `lzma` with `preset=9|PRESET_EXTREME` and marks the baseline as non-final. It
 also reports a `gzip -9` reference with size and encode/decode throughput, plus
 `cmodel_to_gzip` for quick comparison against a DEFLATE baseline.
+
+Before starting compressed RTL coding, compare the two area-sensitive dictionary
+choices:
+
+```sh
+make pre-rtl-dict-report
+```
+
+This fixed gate uses the RTL-friendly C model with `dict=16/64KiB`,
+`lc/lp/pb=3/0/2`, `nice_len=64`, and `depth=16`, and writes:
+
+```text
+build/cmodel/reports/pre_rtl_dict_report.csv
+build/cmodel/reports/pre_rtl_dict_report.md
+```
 
 ## VCS and DC
 

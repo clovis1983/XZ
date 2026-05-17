@@ -30,6 +30,7 @@ All registers are 32-bit little-endian. Address bits `[1:0]` are ignored.
 | `0` | `8` | 64 KiB |
 | `1` | `12` | 256 KiB |
 | `2` | `16` | 1 MiB |
+| `3` | `4` | 16 KiB |
 
 ## Error Codes
 

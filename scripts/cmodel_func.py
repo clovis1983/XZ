@@ -92,6 +92,12 @@ def compressed_cmodel(input_path: Path, output_path: Path, args: argparse.Namesp
     return "STANDALONE_C_RTL_FRIENDLY_HC4_RANGE", output_path.read_bytes(), elapsed
 
 
+def rtl_decode(rtl_cmodel: Path, input_path: Path, output_path: Path) -> float:
+    start = time.perf_counter()
+    run([str(rtl_cmodel), "--mode", "decode", str(input_path), str(output_path)])
+    return time.perf_counter() - start
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cmodel", type=Path, default=Path("build/cmodel/xz_uncompressed_model"))
@@ -155,6 +161,19 @@ def main() -> None:
         backend_name, encoded, elapsed = compressed_cmodel(input_path, xz_path, args)
         if lzma.decompress(encoded) != data:
             raise SystemExit(f"compressed backend mismatch: {name}")
+        if args.compressed_backend == "rtl":
+            decoded_path = args.out_dir / f"{name}.compressed_rtl.decoded.bin"
+            rtl_decode(args.rtl_cmodel, xz_path, decoded_path)
+            if decoded_path.read_bytes() != data:
+                raise SystemExit(f"rtl decoder mismatch on rtl stream: {name}")
+
+            ref_path = args.out_dir / f"{name}.xz_reference.xz"
+            ref_decoded_path = args.out_dir / f"{name}.xz_reference.decoded.bin"
+            ref_path.write_bytes(compressed_reference(data, args))
+            rtl_decode(args.rtl_cmodel, ref_path, ref_decoded_path)
+            if ref_decoded_path.read_bytes() != data:
+                raise SystemExit(f"rtl decoder mismatch on xz reference stream: {name}")
+
         ratio = 0.0 if len(data) == 0 else len(encoded) / len(data)
         mbps = 0.0 if elapsed <= 0 else len(data) / elapsed / (1024 * 1024)
         print(
