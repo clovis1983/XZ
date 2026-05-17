@@ -78,6 +78,7 @@ def main() -> None:
             "rtl/xz_range_bit.sv",
             "rtl/xz_prob_ram_ctrl.sv",
             "rtl/xz_lzma2_compressed_core.sv",
+            "rtl/xz_lzma2_compressed_decoder.sv",
             "rtl/xz_lzma2_uncompressed_encoder.sv",
             "rtl/xz_lzma2_uncompressed_decoder.sv",
             "rtl/xz_axi_lite_regs.sv",

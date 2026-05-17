@@ -41,8 +41,10 @@ module tb_xz_top_compressed_file;
   int expected_fd;
   int c;
   int timeout;
+  int input_count;
   int expected_count;
   int captured_count;
+  logic [7:0] input_bytes [0:511];
   logic [7:0] expected_bytes [0:255];
   logic [7:0] captured_bytes [0:255];
   logic [7:0] expected_error;
@@ -91,7 +93,7 @@ module tb_xz_top_compressed_file;
     begin
       if (!cond) begin
         $display("FAIL %s", msg);
-        $finish;
+        $fatal(1, "%s", msg);
       end
     end
   endtask
@@ -136,6 +138,8 @@ module tb_xz_top_compressed_file;
       expected_error_arg = "00";
     if (expected_error_arg == "09")
       expected_error = XZ_ERR_CONFIG;
+    else if (expected_error_arg == "06")
+      expected_error = XZ_ERR_BAD_CRC;
     else if (expected_error_arg == "08")
       expected_error = XZ_ERR_TRUNCATED;
     else if (expected_error_arg == "07")
@@ -158,6 +162,7 @@ module tb_xz_top_compressed_file;
     s_axis_tlast = 1'b0;
     s_axis_tuser = 8'h00;
     m_axis_tready = 1'b1;
+    input_count = 0;
     expected_count = 0;
     timeout = 0;
 
@@ -175,6 +180,13 @@ module tb_xz_top_compressed_file;
 
     input_fd = $fopen(input_path, "rb");
     check(input_fd != 0, "open input file");
+    c = $fgetc(input_fd);
+    while (c != -1) begin
+      input_bytes[input_count] = c[7:0];
+      input_count++;
+      c = $fgetc(input_fd);
+    end
+    $fclose(input_fd);
 
     repeat (5) @(negedge clk);
     rst_n = 1'b1;
@@ -184,20 +196,16 @@ module tb_xz_top_compressed_file;
     axil_write(12'h000, 32'h0000_0003);
     repeat (2) @(negedge clk);
 
-    c = $fgetc(input_fd);
-    while (c != -1 && !dut.core_done) begin
+    for (int in_idx = 0; in_idx < input_count && !dut.core_done; in_idx++) begin
       @(negedge clk);
-      s_axis_tdata = c[7:0];
+      s_axis_tdata = input_bytes[in_idx];
       s_axis_tvalid = 1'b1;
-      s_axis_tlast = 1'b0;
+      s_axis_tlast = (in_idx == input_count - 1);
       while (!s_axis_tready && !dut.core_done)
         @(negedge clk);
-      if (!dut.core_done) begin
+      if (!dut.core_done)
         @(posedge clk);
-        c = $fgetc(input_fd);
-      end
     end
-    $fclose(input_fd);
 
     @(negedge clk);
     s_axis_tvalid = 1'b0;
@@ -210,12 +218,13 @@ module tb_xz_top_compressed_file;
 
     check(dut.core_done, "top compressed decode completes");
     check(dut.core_error == expected_error, "top compressed decode error code");
-    check(dut.core_bytes_out == expected_count, "top compressed bytes_out");
-    check(captured_count == expected_count, "top compressed captured count");
-    for (int i = 0; i < expected_count; i++)
-      check(captured_bytes[i] == expected_bytes[i], "top compressed output byte");
-    if (expected_error == XZ_ERR_NONE)
+    if (expected_error == XZ_ERR_NONE) begin
+      check(dut.core_bytes_out == expected_count, "top compressed bytes_out");
+      check(captured_count == expected_count, "top compressed captured count");
+      for (int i = 0; i < expected_count; i++)
+        check(captured_bytes[i] == expected_bytes[i], "top compressed output byte");
       check(m_axis_tuser == 8'h00, "top compressed success tuser");
+    end
 
     $display("XZ_TOP_COMPRESSED_FILE_PASS input=%s bytes_out=%0d error=%02x",
              input_path, dut.core_bytes_out, dut.core_error);

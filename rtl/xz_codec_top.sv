@@ -185,14 +185,14 @@ module xz_codec_top #(
   xz_lzma2_uncompressed_decoder u_decoder (
       .clk(clk),
       .rst_n(core_rst_n),
-      .start(start_pulse && mode_decode),
+      .start(start_pulse && mode_decode && !cfg_compressed_lzma2),
       .s_axis_tdata(s_axis_tdata),
-      .s_axis_tvalid(s_axis_tvalid && mode_decode),
+      .s_axis_tvalid(s_axis_tvalid && mode_decode && !cfg_compressed_lzma2),
       .s_axis_tready(dec_s_ready),
       .s_axis_tlast(s_axis_tlast),
       .m_axis_tdata(dec_m_data),
       .m_axis_tvalid(dec_m_valid),
-      .m_axis_tready(m_axis_tready && mode_decode),
+      .m_axis_tready(m_axis_tready && mode_decode && !cfg_compressed_lzma2),
       .m_axis_tlast(dec_m_last),
       .busy(dec_busy),
       .done(dec_done),
@@ -202,11 +202,10 @@ module xz_codec_top #(
       .active_cycles(dec_cycles)
   );
 
-  xz_lzma2_compressed_core u_compressed_decoder (
+  xz_lzma2_compressed_decoder u_compressed_decoder (
       .clk(clk),
       .rst_n(core_rst_n),
       .start(start_pulse && use_compressed_decode_w),
-      .mode_decode(1'b1),
       .cfg_dict_size_id(cfg_dict_size_id),
       .cfg_lc(cfg_lc),
       .cfg_lp(cfg_lp),

@@ -4,8 +4,17 @@
 
 Repository: `https://github.com/clovis1983/XZ`
 
-The project is in the transition from compressed decoder core bring-up to
-top-level compressed decode integration.
+The project is in compressed decoder top-level bring-up. The first complete
+`.xz` compressed directed path is in place; broader compressed cases remain.
+
+Latest pushed commit:
+
+```text
+f3dcd15 Integrate top-level compressed decode
+```
+
+There are local, uncommitted changes after that commit. See "Local Uncommitted
+Changes" below before continuing.
 
 Completed:
 
@@ -30,17 +39,26 @@ Completed:
     distance error, truncate, bad control, and bad property directed coverage
 - Top-level compressed decode selection through `cfg0[19]`, with default
   uncompressed decode behavior unchanged.
-- Top-level raw LZMA2 file-driven compressed decode directed target.
+- Top-level compressed `.xz` file-driven directed target:
+  - valid `ABAB` compressed stream
+  - bad CRC
+  - bad block padding
+  - truncated stream
 
 Not completed yet:
 
-- Full `.xz` container compressed RTL decoder path.
+- Broad `.xz` container compressed RTL decoder path.
 - Full compressed RTL encoder path.
 - HC4 match finder RTL.
 - LZMA symbol encoder FSMs.
-- Top-level `.xz` compressed stream parser integration.
+- Multi-chunk compressed LZMA2 and large dictionary stress coverage.
 
 ## Important Files
+
+Design reference:
+
+- `docs/designspec.md`: overall RTL design specification and module ownership
+  map for future coding windows.
 
 Core RTL:
 
@@ -48,6 +66,8 @@ Core RTL:
 - `rtl/xz_codec_pkg.sv`: constants, CRC helpers, dict id helpers.
 - `rtl/xz_codec_mem_top.sv`: centralized memory wrapper.
 - `rtl/xz_lzma2_compressed_core.sv`: raw LZMA2 compressed decoder core.
+- `rtl/xz_lzma2_compressed_decoder.sv`: `.xz` container wrapper around the
+  raw compressed decoder core.
 - `rtl/xz_range_bit.sv`: one probability-decision range encode/decode step.
 - `rtl/xz_prob_ram_ctrl.sv`: probability RAM init and read-modify-write update.
 - `rtl/xz_lzma2_uncompressed_encoder.sv`: working uncompressed LZMA2 encoder.
@@ -65,8 +85,15 @@ C models and scripts:
 Testbenches:
 
 - `tb/tb_lzma_core_units.sv`: range/prob/memory unit tests.
+- `tb/tb_lzma_compressed_core.sv`: raw LZMA2 compressed core directed tests.
+- `tb/tb_xz_top_compressed_file.sv`: top-level compressed `.xz` directed tests.
 - `tb/tb_xz_encoder.sv`, `tb/tb_xz_decoder.sv`: smoke tests.
 - `tb/tb_xz_encoder_file.sv`, `tb/tb_xz_decoder_file.sv`: file-driven corpus tests.
+
+Fixture generation:
+
+- `scripts/gen_compressed_directed.py`: generates raw LZMA2 and `.xz`
+  compressed directed fixtures under `build/compressed_directed`.
 
 ## Configuration Decisions
 
@@ -120,6 +147,12 @@ Top-level raw LZMA2 compressed directed test:
 make rtl-compressed-top
 ```
 
+Top-level `.xz` compressed directed test:
+
+```sh
+make rtl-compressed-xz-top
+```
+
 Debug-stage corpus simulation, currently only the smallest generated benchmark
 file:
 
@@ -154,12 +187,27 @@ make pre-rtl-dict-report
 Expected local verification state at handoff:
 
 ```text
+python3 lzma check for xz_lzma2_abab.xz PASS
 make rtl-core-units  PASS
 make rtl-compressed-core PASS
 make rtl-compressed-top  PASS
+make rtl-compressed-xz-top PASS
 make corpus-sim      PASS, runs prog_b only
 make smoke           PASS
 make cmodel-gate-rtl PASS
+```
+
+The latest local validation actually run in this window:
+
+```text
+python3 -c/lzma check on generated xz_lzma2_abab.xz PASS, output ABAB
+make rtl-compressed-xz-top PASS
+make rtl-compressed-top PASS
+make rtl-compressed-core PASS
+make rtl-core-units PASS
+make smoke PASS
+make corpus-sim PASS, runs prog_b only
+git diff --check PASS
 ```
 
 ## Current Simulation Boundary
@@ -169,26 +217,59 @@ uncompressed RTL container path on generated corpus files. This is intentional
 for debug-stage regression speed and container stability.
 
 `make corpus-sim` and `make corpus-sim-all` do not yet exercise the compressed
-decoder path. Use `make rtl-compressed-core` and `make rtl-compressed-top` for
-compressed decoder directed coverage.
+decoder path. Use `make rtl-compressed-core` for raw LZMA2 core coverage and
+`make rtl-compressed-xz-top` / `make rtl-compressed-top` for compressed `.xz`
+top-level directed coverage.
 
-`xz_lzma2_compressed_core.sv` currently accepts raw LZMA2 compressed chunks, not
-a full `.xz` container stream. In `xz_codec_top`, set `cfg0[19]` with decode mode
-to route AXI-Stream input to the compressed core. Leave `cfg0[19]` clear for the
-existing uncompressed `.xz` decoder path.
+In `xz_codec_top`, set `cfg0[19]` with decode mode to route AXI-Stream input to
+the compressed `.xz` decoder wrapper. Leave `cfg0[19]` clear for the existing
+uncompressed `.xz` decoder path.
+
+## Local Uncommitted Changes
+
+Current branch is `main`, with `origin/main` at `f3dcd15`. The following files
+are locally modified or added and have not been committed yet:
+
+```text
+M  Makefile
+M  docs/HANDOFF.md
+M  rtl/xz_codec_top.sv
+M  scripts/gen_compressed_directed.py
+M  scripts/run_smoke.py
+M  tb/tb_xz_top_compressed_file.sv
+?? docs/designspec.md
+?? rtl/xz_lzma2_compressed_decoder.sv
+```
+
+Meaning of those changes:
+
+- `rtl/xz_lzma2_compressed_decoder.sv` is the new `.xz` container wrapper around
+  `xz_lzma2_compressed_core`.
+- `xz_codec_top` now instantiates the compressed `.xz` decoder wrapper for
+  `mode_decode && cfg0[19]`.
+- `Makefile` includes `rtl/xz_lzma2_compressed_decoder.sv` in `RTL_SRCS` and
+  adds/aliases the compressed `.xz` top-level target.
+- `scripts/gen_compressed_directed.py` now emits valid `ABAB` compressed `.xz`
+  plus bad CRC, bad padding, and truncated `.xz` fixtures.
+- `tb/tb_xz_top_compressed_file.sv` can drive full `.xz` fixture files and
+  checks success output or expected error code.
+- `scripts/run_smoke.py` includes the new compressed decoder wrapper in the
+  top-level compile source list.
+- `docs/designspec.md` is the newly added design/specification document for
+  future coding context.
 
 ## Recommended Next Steps
 
-1. Extend top-level compressed decode from raw LZMA2 chunks to `.xz` Block
-   parsing, CRC/check verification, Index/Footer, and final stream accounting.
-2. Add broader file-driven compressed decoder cases once `.xz` container support
-   exists.
-3. Add remaining compressed decoder stress cases:
+1. Add broader compressed `.xz` file-driven cases:
+   - more literal/match mixes
+   - generated samples from the RTL C model
+   - larger payloads that exercise backpressure and counters
+2. Add remaining compressed decoder stress cases:
    - rep1/rep2/rep3 rotation
    - dictionary wrap
    - large direct distances that remain valid
    - multi-chunk property reset/state retention
-4. Only after decoder works, start encoder path:
+3. Only after decoder works, start encoder path:
    - range encoder byte output FSM
    - literal encode
    - HC4 match finder

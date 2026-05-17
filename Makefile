@@ -6,6 +6,7 @@ RTL_SRCS := \
 	rtl/xz_range_bit.sv \
 	rtl/xz_prob_ram_ctrl.sv \
 	rtl/xz_lzma2_compressed_core.sv \
+	rtl/xz_lzma2_compressed_decoder.sv \
 	rtl/xz_lzma2_uncompressed_encoder.sv \
 	rtl/xz_lzma2_uncompressed_decoder.sv \
 	rtl/xz_axi_lite_regs.sv \
@@ -54,7 +55,7 @@ DC_CHUNK_MAX_BYTES ?= 64
 DC_TARGET_LIBRARY ?=
 DC_LINK_LIBRARY ?=
 
-.PHONY: smoke rtl-core-units rtl-compressed-core rtl-compressed-top compressed-directed corpus-sim corpus-sim-all cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
+.PHONY: smoke rtl-core-units rtl-compressed-core rtl-compressed-top rtl-compressed-xz-top compressed-directed corpus-sim corpus-sim-all cmodel cmodel-liblzma cmodel-rtl cmodel-test cmodel-func bench-corpus cmodel-bench cmodel-gate cmodel-gate-python cmodel-gate-liblzma cmodel-gate-rtl pre-rtl-dict-report param-sweep param-sweep-upper ratio vcs vcs-encoder vcs-decoder vcs-top vcs-run vcs-run-encoder vcs-run-decoder dc clean
 
 smoke:
 	python3 scripts/run_smoke.py
@@ -70,10 +71,14 @@ rtl-compressed-core:
 compressed-directed:
 	python3 scripts/gen_compressed_directed.py
 
-rtl-compressed-top: compressed-directed
+rtl-compressed-top: rtl-compressed-xz-top
+
+rtl-compressed-xz-top: compressed-directed
 	iverilog -g2012 -s tb_xz_top_compressed_file -Wall -o tb/xz_top_compressed_file.vvp $(RTL_SRCS) tb/tb_xz_top_compressed_file.sv
-	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/raw_lzma2_abab.bin +EXPECTED=build/compressed_directed/raw_lzma2_abab.expected.bin
-	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/raw_lzma2_bad_prop.bin +EXPECTED_ERROR=09
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_abab.xz +EXPECTED=build/compressed_directed/raw_lzma2_abab.expected.bin
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_crc.xz +EXPECTED_ERROR=06
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_bad_padding.xz +EXPECTED_ERROR=07
+	vvp tb/xz_top_compressed_file.vvp +INPUT=build/compressed_directed/xz_lzma2_truncated.xz +EXPECTED_ERROR=08
 
 corpus-sim: bench-corpus
 	python3 scripts/run_corpus_sim.py --manifest $(BENCH_MANIFEST) --smallest-only
